@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "348781799507",
+    "project_id": "aqlan-spices",
+    "storage_bucket": "aqlan-spices.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:348781799507:android:eeefc31a1893077c6efea6",
+        "android_client_info": {
+          "package_name": "com.example.aqlanstore"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD97dXbeavWuG-ANmA-YxYjGBcEuVTG9Vg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
