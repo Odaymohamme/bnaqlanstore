@@ -15,6 +15,7 @@ import '../models/unit.dart';
 import '../models/order.dart';
 import '../models/address.dart';
 import 'package:flutter/material.dart';
+import '../utils/image_cashe_manager.dart';
 import 'dart:convert';
 
 
@@ -178,35 +179,20 @@ class ApiService {
   }*/
 
   static Future<bool> updateCartItemQuantity({
-    required int customerId,
-    required int itemId,
-    required String unit,
-    required int quantity,
+    required String cartId,
+    required String  quantity,
   }) async {
     try {
       final firestore = FirebaseFirestore.instance;
-
-      // ✅ البحث عن العنصر في السلة
-      final snap = await firestore
-          .collection("cart")
-          .where("customer_id", isEqualTo: customerId.toString())
-          .where("item_id", isEqualTo: itemId.toString())
-          .where("unit", isEqualTo: unit)
-          .get();
-
-      if (snap.docs.isEmpty) return false;
-
-      // ✅ تحديث الكمية
-      await snap.docs.first.reference.update({
-        "quantity": quantity.toString(),
-      });
-
+      final docRef = firestore.collection("cart").doc(cartId);
+      await docRef.update({"quantity": quantity});
       return true;
     } catch (e) {
-      debugPrint("❌ updateCartItemQuantity error: $e");
+      debugPrint("updateCartItemQuantity failed: $e");
       return false;
     }
   }
+
 
   /////
   static Future<List<Item>> fetchRecommendedItems(int customerId) async {
@@ -291,32 +277,18 @@ class ApiService {
   }
 
   static Future<bool> removeCartItem({
-    required int customerId,
-    required int itemId,
-    required String unit,
+    required String cartId,
   }) async {
     try {
       final firestore = FirebaseFirestore.instance;
-
-      // ✅ البحث عن العنصر في السلة
-      final snap = await firestore
-          .collection("cart")
-          .where("customer_id", isEqualTo: customerId.toString())
-          .where("item_id", isEqualTo: itemId.toString())
-          .where("unit", isEqualTo: unit)
-          .get();
-
-      if (snap.docs.isEmpty) return false;
-
-      // ✅ الحذف
-      await snap.docs.first.reference.delete();
-
+      await firestore.collection("cart").doc(cartId).delete();
       return true;
     } catch (e) {
-      debugPrint("❌ removeCartItem error: $e");
+      debugPrint("removeCartItem failed: $e");
       return false;
     }
   }
+
 
   static Future<bool> addToCart({
     required int customerId,
@@ -353,51 +325,72 @@ class ApiService {
 
 
   // ✅ جلب السلة من Firestore
-  static Future<List<CartItem>> fetchCart(int customerId) async {
+// ✅ جلب السلة من Firestore
+  static Future<List<CartItem>> fetchCart(String customerId) async {
     try {
       final firestore = FirebaseFirestore.instance;
 
-      // ✅ 1. جلب بيانات السلة
       final snap = await firestore
           .collection("cart")
-          .where("customer_id", isEqualTo: customerId.toString())
+          .where("customer_id", isEqualTo: customerId)
           .get();
 
       List<CartItem> items = [];
 
-      // ✅ 2. المرور على كل عنصر داخل السلة
       for (var doc in snap.docs) {
         final data = doc.data();
 
-        final String itemId = data["item_id"].toString();
+        final String cartId = data['cart_id']?.toString() ?? doc.id;
+        final String itemId = data['item_id']?.toString() ?? "";
+        final String itemNameFromCart = data['item_name']?.toString() ?? "";
+        final String price = data['price']?.toString() ?? "0";
+        final String quantity = data['quantity']?.toString() ?? "1";
+        final String unit = data['unit']?.toString() ?? "";
+        final String customDescription = data['custom_description']?.toString() ?? "";
 
-        // ✅ 3. جلب بيانات الصنف من مجموعة items
-        final itemSnap =
-        await firestore.collection("items").doc(itemId).get();
+        // جلب حقل الصورة من مجموعة items (التي تعمل في home/search)
+        String rawImage = "";
 
-        String imageUrl = "";
-        if (itemSnap.exists) {
-          final itemData = itemSnap.data();
-          imageUrl = itemData?["image_url"]?.toString() ?? "";
+        if (itemId.isNotEmpty) {
+          try {
+            final itemSnap = await firestore.collection("items").doc(itemId).get();
+            if (itemSnap.exists) {
+              final itemData = itemSnap.data();
+              // نتحقق من أسماء الحقول المتوقعة في مجموعة items: ممكن image_url أو image أو imageUrl
+              rawImage = itemData?['image_url']?.toString() ??
+                  itemData?['image']?.toString() ??
+                  itemData?['imageUrl']?.toString() ??
+                  "";
+            } else {
+              // إن لم توجد doc داخل items، قد يكون الاسم موجود داخل حقل السلة نفسه
+              rawImage = data['image_url']?.toString() ?? data['image']?.toString() ?? "";
+            }
+          } catch (e) {
+            debugPrint("warning: unable to fetch item doc for itemId=$itemId -> $e");
+            rawImage = data['image_url']?.toString() ?? data['image']?.toString() ?? "";
+          }
+        } else {
+          rawImage = data['image_url']?.toString() ?? data['image']?.toString() ?? "";
         }
 
-        // ✅ 4. تحويل صورة Supabase إلى رابط فعلي دائم
-        if (imageUrl.isNotEmpty && !imageUrl.startsWith("http")) {
-          imageUrl =
-          "https://nrjwzdkhwcqokwlmkzem.supabase.co/storage/v1/object/public/products/$imageUrl";
-        }
+        // الآن نحول الـ rawImage إلى رابط صالح بنفس منطق home/search
+        final rawImage = itemData?['image_url']?.toString() ?? '';
+        final imageUrl = MyImageCacheManager.resolveProductImageUrl(rawImage);
 
-        // ✅ 5. بناء عنصر السلة كامل
-        items.add(
-          CartItem(
-            id: int.tryParse(data["cart_id"]?.toString() ?? '0') ?? 0,
-            name: data["item_name"]?.toString() ?? '',
-            imageUrl: imageUrl,
-            price: double.tryParse(data["price"]?.toString() ?? '0') ?? 0,
-            quantity: int.tryParse(data["quantity"]?.toString() ?? '1') ?? 1,
-            unit: data["unit"]?.toString() ?? '',
-          ),
-        );
+        // طباعة تصحيحية صغيرة لترى الرابط فعليًا في console أثناء التشغيل
+        debugPrint("fetchCart: cartId=$cartId itemId=$itemId imageResolved=$resolved");
+
+        items.add(CartItem(
+          cartId: cartId,
+          customerId: customerId,
+          itemId: itemId,
+          itemName: itemNameFromCart,
+          price: price,
+          quantity: quantity,
+          unit: unit,
+          customDescription: customDescription,
+          imageUrl: resolved,
+        ));
       }
 
       return items;
@@ -406,6 +399,10 @@ class ApiService {
       return [];
     }
   }
+
+
+
+
 
   /// 🔹 جلب الوحدات الخاصة بالصنف
   static Future<List<Unit>> fetchItemUnits(String itemId) async {
@@ -441,12 +438,12 @@ class ApiService {
     try {
       final firestore = FirebaseFirestore.instance;
 
-      // 1) ✅ إنشاء رقم طلب فريد
+      // 1) إنشاء doc جديد للأمر للحصول على orderId
       final orderDoc = firestore.collection("orders").doc();
       final orderId = orderDoc.id;
 
       // ----------------------------------------------------------
-      // ✅ 2) رفع إثبات الدفع إلى Supabase (إن وجد)
+      // 2) رفع إثبات الدفع إلى Supabase (إن وُجد)
       // ----------------------------------------------------------
       String proofUrl = "";
 
@@ -457,8 +454,7 @@ class ApiService {
             "https://nrjwzdkhwcqokwlmkzem.supabase.co/storage/v1/object/public/payment_proofs/$fileName";
 
         final uploadUrl = Uri.parse(
-          "https://nrjwzdkhwcqokwlmkzem.supabase.co/storage/v1/object/payment_proofs/$fileName",
-        );
+            "https://nrjwzdkhwcqokwlmkzem.supabase.co/storage/v1/object/payment_proofs/$fileName");
 
         final bytes = await proofImage.readAsBytes();
 
@@ -471,93 +467,80 @@ class ApiService {
           body: bytes,
         );
 
-        if (resp.statusCode == 200) {
+        if (resp.statusCode == 200 || resp.statusCode == 201) {
           proofUrl = supabasePublicUrl;
         } else {
-          debugPrint("❌ Upload to Supabase FAILED: ${resp.body}");
+          debugPrint("❌ Upload to Supabase failed: ${resp.statusCode} ${resp.body}");
         }
       }
 
       // ----------------------------------------------------------
-      // ✅ 3) حفظ الطلب في مجموعة orders
+      // 3) حفظ الطلب في مجموعة orders مع الحقول المطلوبة
       // ----------------------------------------------------------
-      await orderDoc.set({
-        "order_id": orderId,
-        "customer_id": customerId.toString(),
+      final orderData = {
+        "accepted_at": "",
         "address": address,
+        "customer_id": customerId.toString(),
+        "order_date": FieldValue.serverTimestamp(),
+        "order_id": orderId,
         "payment_method": paymentMethod,
         "payment_proof": proofUrl,
-        "total": total.toString(),
         "status": "pending",
-        "order_date": FieldValue.serverTimestamp(),
-        "accepted_at": "",
-      });
+        "total": total,
+        "created_at": FieldValue.serverTimestamp(),
+      };
+
+      await orderDoc.set(orderData);
 
       // ----------------------------------------------------------
-      // ✅ 4) حفظ أصناف الطلب في order_items (مع جلب بيانات الصنف)
+      // 4) حفظ كل عنصر في مجموعة order_items
       // ----------------------------------------------------------
       final batch = firestore.batch();
-      final itemsRef = firestore.collection("order_items");
+      final orderItemsCollection = firestore.collection("order_items");
 
       for (final it in items) {
-        final itemId = it["id"].toString();
-
-        // ✅ جلب بيانات الصنف من Firestore لإضافة الصورة والكاتيغري
-        final itemSnap =
-        await firestore.collection("items").doc(itemId).get();
-
-        String imageUrl = "";
-        String categoryId = "";
-
-        if (itemSnap.exists) {
-          final data = itemSnap.data();
-          imageUrl = data?["image_url"]?.toString() ?? "";
-          categoryId = data?["category_id"]?.toString() ?? "";
-        }
-
-        final itemDoc = itemsRef.doc();
-
-        batch.set(itemDoc, {
-          "id": itemDoc.id,
-          "order_id": orderId,
-          "item_id": itemId,
-          "item_name": it["name"],
-          "price": it["price"].toString(),
-          "quantity": it["quantity"].toString(),
-          "unit": it["unit"],
-
-          // ✅ حقول الأصناف المخصصة
-          "custom_name": it["custom_name"] ?? "",
+        final map = <String, dynamic>{
           "custom_description": it["custom_description"] ?? "",
           "custom_image": it["custom_image"] ?? "",
+          "custom_name": it["custom_name"] ?? "",
+          "id": it["id"]?.toString() ?? "",
+          "item_id": it["item_id"]?.toString() ?? "",
+          "item_name": it["item_name"] ?? "",
+          "order_id": orderId,
+          "price": it["price"]?.toString() ?? "",
+          "quantity": it["quantity"]?.toString() ?? "",
+          "unit": it["unit"] ?? "",
+          "created_at": FieldValue.serverTimestamp(),
+        };
 
-          // ✅ مضافة تلقائياً
-          "image_url": imageUrl,
-          "category_id": categoryId,
-        });
+        final docRef = orderItemsCollection.doc();
+        batch.set(docRef, map);
       }
 
       await batch.commit();
 
       // ----------------------------------------------------------
-      // ✅ 5) حذف السلة الخاصة بالعميل بالكامل
+      // 5) حذف عناصر السلة بعد اعتماد الطلب
       // ----------------------------------------------------------
       final cartSnap = await firestore
           .collection("cart")
           .where("customer_id", isEqualTo: customerId.toString())
           .get();
 
-      for (final doc in cartSnap.docs) {
-        await doc.reference.delete();
+      final cartBatch = firestore.batch();
+      for (var doc in cartSnap.docs) {
+        cartBatch.delete(doc.reference);
       }
+      await cartBatch.commit();
 
       return true;
     } catch (e, st) {
-      debugPrint("❌ confirmOrder error: $e");
-      debugPrint("STACK: $st");
+      debugPrint("confirmOrder failed: $e");
+      debugPrint("$st");
       return false;
     }
   }
+
   /// جلب الطلبات السابقة
   static Future<List<Order>> fetchOrders(int customerId) async {
     final url = Uri.parse('${Constants

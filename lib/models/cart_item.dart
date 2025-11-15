@@ -1,40 +1,50 @@
 // lib/models/cart_item.dart
 class CartItem {
-  final int id;
-  final String name;
-  final String imageUrl;
-  final double price;
-  final int quantity;
-  final String unit;
+  final String cartId;       // cart_id في Firestore (string)
+  final String customerId;   // customer_id (string)
+  final String itemId;       // item_id (string)
+  final String itemName;     // item_name
+  final String price;        // price كـ string في Firestore
+  final String quantity;     // quantity كـ string
+  final String unit;         // unit
+  final String customDescription; // custom_description
+  final String imageUrl;     // رابط الصورة النهائي (تمت معالجته)
 
   CartItem({
-    required this.id,
-    required this.name,
-    required this.imageUrl,
+    required this.cartId,
+    required this.customerId,
+    required this.itemId,
+    required this.itemName,
     required this.price,
     required this.quantity,
     required this.unit,
+    this.customDescription = "",
+    this.imageUrl = "",
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'imageUrl': imageUrl,
-      'price': price,
-      'quantity': quantity,
-      'unit': unit,
-    };
-  }
+  Map<String, dynamic> toJson() => {
+    'cart_id': cartId,
+    'customer_id': customerId,
+    'item_id': itemId,
+    'item_name': itemName,
+    'price': price,
+    'quantity': quantity,
+    'unit': unit,
+    'custom_description': customDescription,
+    'image_url': imageUrl,
+  };
 
   factory CartItem.fromJson(Map<String, dynamic> json) {
     return CartItem(
-        id: json['cart_id'] ?? json['item_id'] ?? 0,
-        name: json['item_name']?.toString() ?? '', // ✅ التصحيح هنا
-        imageUrl: json['image']?.toString() ?? '',
-        price: double.tryParse(json['price'].toString()) ?? 0.0,
-        quantity: int.tryParse(json['quantity'].toString()) ?? 1,
-        unit: json['unit']?.toString() ?? '',
-        );
-    }
+      cartId: json['cart_id']?.toString() ?? "",
+      customerId: json['customer_id']?.toString() ?? "",
+      itemId: json['item_id']?.toString() ?? "",
+      itemName: json['item_name']?.toString() ?? "",
+      price: json['price']?.toString() ?? "0",
+      quantity: json['quantity']?.toString() ?? "1",
+      unit: json['unit']?.toString() ?? "",
+      customDescription: json['custom_description']?.toString() ?? "",
+      imageUrl: json['image_url']?.toString() ?? "",
+    );
+  }
 }

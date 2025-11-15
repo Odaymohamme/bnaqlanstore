@@ -1,3 +1,5 @@
+// هذا ملف HomeScreen كامل مع تحسين تحميل الصور (fixSupabaseImageUrl + debugPrint)
+// استبدل الملف الحالي بهذا الملف.
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -33,16 +35,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
   List<SpecialOffer> _offers = [];
   List<Item> _items = [];
 
-  // مجموعة معرفات المفضلة (لتحكم سريع في أيقونة القلب)
   final Set<String> _favoriteIds = {};
-  // قائمة أصناف المفضلة المفصلة لعرضها كشريط مستقل
   final List<Item> _favoriteItems = [];
   final List<Item> _recentItems = [];
   bool _loadingRecent = true;
 
-  // تعقب إضافة للعناصر (منع أزرار متعددة أثناء العملية)
   final Set<String> _addingToCartIds = {};
-  // حماية ضد نقرات متكررة على Favorite
   final Set<String> _togglingFavoriteIds = {};
 
   final PageController _pageController = PageController(viewportFraction: 0.85);
@@ -87,7 +85,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   Future<void> _loadAllInitialData() async {
     setState(() => _loading = true);
-    // جلب البيانات الأساسية والمفضلة والأخيرة بالتوازي لتقليل زمن التحميل
     await Future.wait([_loadData(), _loadFavorites(), _loadRecent()]);
     if (mounted) setState(() => _loading = false);
   }
@@ -126,7 +123,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  /// جلب المفضلة بكفاءة باستخدام whereIn لتقليل عدد الـ reads
   Future<void> _loadFavorites() async {
     try {
       final favSnap = await _firestore
@@ -139,7 +135,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         return (v['item_id'] ?? '').toString();
       }).where((id) => id.isNotEmpty).toSet().toList();
 
-      // تنظيف القوائم المحلية
       _favoriteIds.clear();
       _favoriteItems.clear();
 
@@ -148,7 +143,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         return;
       }
 
-      // Firestore whereIn محدودة -> نقسم لشرائح إن لزم
       const batchSize = 10;
       for (var i = 0; i < itemIds.length; i += batchSize) {
         final chunk = itemIds.sublist(i, i + batchSize > itemIds.length ? itemIds.length : i + batchSize);
@@ -200,7 +194,6 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     if (mounted) setState(() => _loadingRecent = false);
   }
 
-  /// تبديل حالة المفضلة — تحديث محلي ذكي لتفادي إعادة تحميل كامل القوائم
   Future<void> _toggleFavorite(Item item) async {
     final itemId = item.id;
     if (_togglingFavoriteIds.contains(itemId)) return;
@@ -257,12 +250,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     }
   }
 
-  /// إصلاح روابط Supabase — تعيد رابط كامل إذا أمكن، وإلا ترجع الاسم كما هو
   String fixSupabaseImageUrl(String? url) {
     if (url == null || url.isEmpty) return '';
 
-    // في حال كانت الصورة من نوع "signed URL" تحتوي على /object/sign/،
-    // نحاول استخراج path مثل /products/xxxxx.jpg ثم نعيد رابط التخزين العام
+    // إذا كان signed URL يحتوي على /object/sign/ نحاول استخراج مسار المنتج
     if (url.contains('/object/sign/')) {
       final match = RegExp(r'(/products/[^?\s/]+\.(?:jpg|jpeg|png|webp))').firstMatch(url);
       if (match != null) {
@@ -271,15 +262,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       }
     }
 
-    // لو الرابط كاملاً
     if (url.startsWith('http')) return url;
 
-    // غير ذلك نفترض أنه اسم ملف داخل products
+    // اسم ملف فقط => نعيد الاسم ونبني finalUrl في _buildNetworkImage
     return url;
   }
 
-  /// تحميل الصورة من Supabase باستخدام CachedNetworkImage مع معالجة الروابط بشكل آمن
-  /// 🔹 تحميل الصورة من Supabase أو الصورة الافتراضية
   Widget _buildNetworkImage(String? url, {double? height, double? width, BoxFit fit = BoxFit.cover}) {
     // رابط فارغ → صورة افتراضية
     if (url == null || url.isEmpty) {
@@ -315,7 +303,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  /// إضافة الصنف إلى السلة (مع حماية من الضغط المزدوج)
+
+
   Future<void> _addItemToCartFirestore(Item it, {int quantity = 1, String unit = 'حبة'}) async {
     final customerId = widget.user.id.toString();
     final itemId = it.id;
@@ -372,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // لعمل AutomaticKeepAliveClientMixin بشكل صحيح
+    super.build(context); // لازم لأننا نستخدم AutomaticKeepAliveClientMixin
     return Scaffold(
       appBar: AppBar(
         title: Text('مرحبًا ${widget.user.name}'),
@@ -477,7 +466,8 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
             const SizedBox(height: 24),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               const Text('الأصناف المشابهة لطلباتك', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              RecommendedSection(user: widget.user), ]),
+              RecommendedSection(user: widget.user),
+            ]),
             const SizedBox(height: 12),
             SizedBox(
               height: 240,
