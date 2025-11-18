@@ -15,8 +15,9 @@ import '../models/unit.dart';
 import '../models/order.dart';
 import '../models/address.dart';
 import 'package:flutter/material.dart';
-import '../utils/image_cashe_manager.dart';
 import 'dart:convert';
+
+import '../utils/image_cashe_manager.dart';
 
 
 
@@ -348,36 +349,48 @@ class ApiService {
         final String unit = data['unit']?.toString() ?? "";
         final String customDescription = data['custom_description']?.toString() ?? "";
 
-        // جلب حقل الصورة من مجموعة items (التي تعمل في home/search)
+        // ====== جلب حقل الصورة من مجموعة items ======
         String rawImage = "";
 
         if (itemId.isNotEmpty) {
           try {
-            final itemSnap = await firestore.collection("items").doc(itemId).get();
-            if (itemSnap.exists) {
-              final itemData = itemSnap.data();
-              // نتحقق من أسماء الحقول المتوقعة في مجموعة items: ممكن image_url أو image أو imageUrl
+            // 1) جرّب الوصول كمستند إذا كان itemId هو doc id
+            final docById = await firestore.collection('items').doc(itemId).get();
+            if (docById.exists) {
+              final itemData = docById.data();
               rawImage = itemData?['image_url']?.toString() ??
                   itemData?['image']?.toString() ??
-                  itemData?['imageUrl']?.toString() ??
                   "";
             } else {
-              // إن لم توجد doc داخل items، قد يكون الاسم موجود داخل حقل السلة نفسه
-              rawImage = data['image_url']?.toString() ?? data['image']?.toString() ?? "";
+              // 2) إن لم توجد وثيقة بالـ doc id، نفذ استعلام حسب الحقل item_id
+              final query = await firestore
+                  .collection('items')
+                  .where('item_id', isEqualTo: itemId)
+                  .limit(1)
+                  .get();
+              if (query.docs.isNotEmpty) {
+                final itemData = query.docs.first.data();
+                rawImage = itemData['image_url']?.toString() ??
+                    itemData['image']?.toString() ??
+                    "";
+              } else {
+                // لا يوجد doc في items مطابق — ربما الصورة مخزنة في مستند السلة نفسه
+                rawImage = data['image_url']?.toString() ?? data['image']?.toString() ?? "";
+              }
             }
           } catch (e) {
             debugPrint("warning: unable to fetch item doc for itemId=$itemId -> $e");
             rawImage = data['image_url']?.toString() ?? data['image']?.toString() ?? "";
           }
         } else {
+          // لا itemId — خذ الصورة من مستند السلة إن وُجدت
           rawImage = data['image_url']?.toString() ?? data['image']?.toString() ?? "";
         }
 
-        // الآن نحول الـ rawImage إلى رابط صالح بنفس منطق home/search
-        final rawImage = itemData?['image_url']?.toString() ?? '';
-        final imageUrl = MyImageCacheManager.resolveProductImageUrl(rawImage);
+        // ====== حل/إصلاح رابط الصورة (مثل home/search) ======
+        final resolved = MyImageCacheManager.resolveProductImageUrl(rawImage);
 
-        // طباعة تصحيحية صغيرة لترى الرابط فعليًا في console أثناء التشغيل
+        // طباعة رابط الصورة في الـ console للتصحيح
         debugPrint("fetchCart: cartId=$cartId itemId=$itemId imageResolved=$resolved");
 
         items.add(CartItem(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
+import '../utils/image_cashe_manager.dart';
 import 'confirm_order_screen.dart';
 
 class CartScreen extends StatefulWidget {
@@ -118,14 +119,14 @@ class _CartScreenState extends State<CartScreen> {
                   child: ListTile(
                     leading: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: imageUrl.isNotEmpty
+                      child: item.imageUrl.isNotEmpty
                           ? CachedNetworkImage(
-                        imageUrl: imageUrl,
+                        imageUrl: item.imageUrl,
+                        cacheManager: MyImageCacheManager.instance, // استخدم الكاش مانيجر المركزي
                         width: 60,
                         height: 60,
                         fit: BoxFit.cover,
-                        placeholder: (_, __) =>
-                        const SizedBox(
+                        placeholder: (_, __) => const SizedBox(
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(),
@@ -144,6 +145,7 @@ class _CartScreenState extends State<CartScreen> {
                         fit: BoxFit.cover,
                       ),
                     ),
+
                     title: Text(
                       item.itemName.isEmpty ? 'بدون اسم' : item.itemName,
                       maxLines: 1,
