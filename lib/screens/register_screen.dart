@@ -1,4 +1,5 @@
 // lib/screens/register_screen.dart
+<<<<<<< HEAD
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -14,12 +15,21 @@ import 'package:http/http.dart' as http;
 /// ⚠️ لتحسين الأمان في الإنتاج — لا تضع service role key في تطبيق العميل.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
+=======
+import 'package:flutter/material.dart';
+import '../services/api_service.dart';
+import 'login_screen.dart';
+
+class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
+>>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+<<<<<<< HEAD
   // ======= ضع بيانات Supabase هنا أو استبدلها بمتغيرات بيئية =======
   static const String SUPABASE_PROJECT_URL = "https://nrjwzdkhwcqokwlmkzem.supabase.co";
   static const String SUPABASE_SERVICE_ROLE_KEY = "YOUR_SUPABASE_SERVICE_ROLE_KEY";
@@ -284,3 +294,78 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 }
+=======
+  final _nameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  bool _loading = false;
+
+  Future<void> _register() async {
+    if (_nameCtrl.text.isEmpty ||
+        _phoneCtrl.text.isEmpty ||
+        _emailCtrl.text.isEmpty ||
+        _passCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠ الرجاء تعبئة جميع الحقول')),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+    final ok = await ApiService.registerClient(
+      name: _nameCtrl.text.trim(),
+      phone: _phoneCtrl.text.trim(),
+      email: _emailCtrl.text.trim(),
+      password: _passCtrl.text.trim(),
+    );
+    setState(() => _loading = false);
+
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ تم إنشاء الحساب بنجاح! يمكنك تسجيل الدخول الآن.')),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('❌ فشل في إنشاء الحساب، حاول مرة أخرى.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        appBar: AppBar(title: const Text("إنشاء حساب جديد")),
+        body: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "الاسم الكامل")),
+                TextField(controller: _phoneCtrl, decoration: const InputDecoration(labelText: "رقم الهاتف"), keyboardType: TextInputType.phone),
+                TextField(controller: _emailCtrl, decoration: const InputDecoration(labelText: "البريد الإلكتروني")),
+                TextField(controller: _passCtrl, decoration: const InputDecoration(labelText: "كلمة المرور"), obscureText: true),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _loading ? null : _register,
+                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                  child: _loading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("تسجيل"),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+                  },
+                  child: const Text("لديك حساب؟ تسجيل الدخول"),
+                ),
+              ],
+            ),
+            ),
+        );
+    }
+}
+>>>>>>> b2b349f86658c0185fdfa973014029ace78b4836

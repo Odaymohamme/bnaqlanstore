@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
+<<<<<<< HEAD
 import '../utils/image_cashe_manager.dart';
+=======
+>>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
 import 'confirm_order_screen.dart';
 
 class CartScreen extends StatefulWidget {
@@ -119,6 +122,7 @@ class _CartScreenState extends State<CartScreen> {
                   child: ListTile(
                     leading: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
+<<<<<<< HEAD
                       child: item.imageUrl.isNotEmpty
                           ? CachedNetworkImage(
                         imageUrl: item.imageUrl,
@@ -127,6 +131,16 @@ class _CartScreenState extends State<CartScreen> {
                         height: 60,
                         fit: BoxFit.cover,
                         placeholder: (_, __) => const SizedBox(
+=======
+                      child: imageUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        width: 60,
+                        height: 60,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) =>
+                        const SizedBox(
+>>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(),
@@ -145,7 +159,10 @@ class _CartScreenState extends State<CartScreen> {
                         fit: BoxFit.cover,
                       ),
                     ),
+<<<<<<< HEAD
 
+=======
+>>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
                     title: Text(
                       item.itemName.isEmpty ? 'بدون اسم' : item.itemName,
                       maxLines: 1,
