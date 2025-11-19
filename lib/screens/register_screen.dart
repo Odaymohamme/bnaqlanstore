@@ -1,39 +1,22 @@
 // lib/screens/register_screen.dart
-<<<<<<< HEAD
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 
-/// شاشة تسجيل مستقلة تمامًا — لا تعتمد على ApiService أو SessionManager.
-/// - ترفع صورة البروفايل إلى Supabase (اختياري)
-/// - تحفظ المستخدم في مجموعة "customers" في Firestore
-/// - تعيد المستخدم أو تعرض رسالة نجاح
-///
-/// ⚠️ تأكد من استبدال SUPABASE_PROJECT_URL و SUPABASE_SERVICE_ROLE_KEY بالقيم لديك.
-/// ⚠️ لتحسين الأمان في الإنتاج — لا تضع service role key في تطبيق العميل.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
-=======
-import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import 'login_screen.dart';
-
-class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
->>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-<<<<<<< HEAD
   // ======= ضع بيانات Supabase هنا أو استبدلها بمتغيرات بيئية =======
   static const String SUPABASE_PROJECT_URL = "https://nrjwzdkhwcqokwlmkzem.supabase.co";
   static const String SUPABASE_SERVICE_ROLE_KEY = "YOUR_SUPABASE_SERVICE_ROLE_KEY";
-  static const String SUPABASE_PROFILES_BUCKET = "profiles"; // تأكد من وجوده وموافقته
+  static const String SUPABASE_PROFILES_BUCKET = "profiles"; // تأكد من وجوده
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameCtrl = TextEditingController();
@@ -87,7 +70,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
 
     if (resp.statusCode == 200 || resp.statusCode == 201) {
-      // public URL:
       return "$SUPABASE_PROJECT_URL/storage/v1/object/public/$SUPABASE_PROFILES_BUCKET/$destFilename";
     } else {
       debugPrint("Supabase upload failed: ${resp.statusCode} ${resp.body}");
@@ -108,15 +90,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     String profileImageUrl = "";
 
     try {
-      // 1) رفع الصورة إذا اختار المستخدم صورة
       if (_pickedImage != null) {
         final filename = "profile_${DateTime.now().millisecondsSinceEpoch}.jpg";
         profileImageUrl = await _uploadProfileImageToSupabase(_pickedImage!, filename);
       }
 
-      // 2) تجهيز بيانات المستخدم
       final docRef = FirebaseFirestore.instance.collection('customers').doc();
-      final customerId = docRef.id;
       final otp = _generateOtp();
       final otpExpiresAt = DateTime.now().add(const Duration(minutes: 10));
 
@@ -124,21 +103,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
         "name": name,
         "phone": phone,
         "email": email,
-        // ملاحظة: تخزين كلمة المرور كنص واضح غير آمن في الإنتاج
-        "password": pass,
+        "password": pass, // ملاحظة: كلمة المرور مخزنة كنص واضح، غير آمنة في الإنتاج
         "profile_image": profileImageUrl,
         "registration_dat": FieldValue.serverTimestamp(),
         "is_verified": false,
         "otp_code": otp,
         "otp_expires_at": Timestamp.fromDate(otpExpiresAt),
         "level": "customer",
-        // يمكنك إضافة حقول أخرى إن رغبت
       };
 
-      // 3) حفظ المستخدم في Firestore
       await docRef.set(data);
 
-      // 4) نجاح — نعرض حوار أو نعيد المستخدم
       if (!mounted) return;
       await showDialog(
         context: context,
@@ -148,8 +123,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop(); // اغلق الحوار
-                Navigator.of(context).pop(); // عُد لواجهة الدخول أو الشاشة السابقة
+                Navigator.of(context).pop();
+                Navigator.of(context).pop(); // العودة لواجهة تسجيل الدخول
               },
               child: const Text('حسناً'),
             ),
@@ -294,78 +269,3 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 }
-=======
-  final _nameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-  bool _loading = false;
-
-  Future<void> _register() async {
-    if (_nameCtrl.text.isEmpty ||
-        _phoneCtrl.text.isEmpty ||
-        _emailCtrl.text.isEmpty ||
-        _passCtrl.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠ الرجاء تعبئة جميع الحقول')),
-      );
-      return;
-    }
-
-    setState(() => _loading = true);
-    final ok = await ApiService.registerClient(
-      name: _nameCtrl.text.trim(),
-      phone: _phoneCtrl.text.trim(),
-      email: _emailCtrl.text.trim(),
-      password: _passCtrl.text.trim(),
-    );
-    setState(() => _loading = false);
-
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ تم إنشاء الحساب بنجاح! يمكنك تسجيل الدخول الآن.')),
-      );
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ فشل في إنشاء الحساب، حاول مرة أخرى.')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-        appBar: AppBar(title: const Text("إنشاء حساب جديد")),
-        body: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: "الاسم الكامل")),
-                TextField(controller: _phoneCtrl, decoration: const InputDecoration(labelText: "رقم الهاتف"), keyboardType: TextInputType.phone),
-                TextField(controller: _emailCtrl, decoration: const InputDecoration(labelText: "البريد الإلكتروني")),
-                TextField(controller: _passCtrl, decoration: const InputDecoration(labelText: "كلمة المرور"), obscureText: true),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: _loading ? null : _register,
-                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
-                  child: _loading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("تسجيل"),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-                  },
-                  child: const Text("لديك حساب؟ تسجيل الدخول"),
-                ),
-              ],
-            ),
-            ),
-        );
-    }
-}
->>>>>>> b2b349f86658c0185fdfa973014029ace78b4836

@@ -4,10 +4,6 @@ import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
-<<<<<<< HEAD
-import '../utils/image_cashe_manager.dart';
-=======
->>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
 import 'confirm_order_screen.dart';
 
 class CartScreen extends StatefulWidget {
@@ -31,7 +27,6 @@ class _CartScreenState extends State<CartScreen> {
   Future<void> _loadCart() async {
     setState(() => _loading = true);
     try {
-      // نرسل customerId كسلسلة لأن الحقل في Firestore مخزن كـ string
       _items = await ApiService.fetchCart(widget.user.id.toString());
     } catch (e) {
       debugPrint('❌ fetchCart error: $e');
@@ -108,11 +103,7 @@ class _CartScreenState extends State<CartScreen> {
               itemCount: _items.length,
               itemBuilder: (_, i) {
                 final item = _items[i];
-
-                // imageUrl يجب أن يكون رابطاً كاملاً (تم تصحيحه في fetchCart)
-                final imageUrl = item.imageUrl.isNotEmpty
-                    ? item.imageUrl
-                    : ''; // خالية -> سيعرض الصورة الافتراضية في errorWidget
+                final imageUrl = item.imageUrl.isNotEmpty ? item.imageUrl : '';
 
                 final currentQty = int.tryParse(item.quantity) ?? 1;
                 final priceDouble = double.tryParse(item.price) ?? 0.0;
@@ -122,25 +113,13 @@ class _CartScreenState extends State<CartScreen> {
                   child: ListTile(
                     leading: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-<<<<<<< HEAD
-                      child: item.imageUrl.isNotEmpty
-                          ? CachedNetworkImage(
-                        imageUrl: item.imageUrl,
-                        cacheManager: MyImageCacheManager.instance, // استخدم الكاش مانيجر المركزي
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => const SizedBox(
-=======
                       child: imageUrl.isNotEmpty
                           ? CachedNetworkImage(
                         imageUrl: imageUrl,
                         width: 60,
                         height: 60,
                         fit: BoxFit.cover,
-                        placeholder: (_, __) =>
-                        const SizedBox(
->>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
+                        placeholder: (_, __) => const SizedBox(
                           width: 24,
                           height: 24,
                           child: CircularProgressIndicator(),
@@ -159,10 +138,6 @@ class _CartScreenState extends State<CartScreen> {
                         fit: BoxFit.cover,
                       ),
                     ),
-<<<<<<< HEAD
-
-=======
->>>>>>> b2b349f86658c0185fdfa973014029ace78b4836
                     title: Text(
                       item.itemName.isEmpty ? 'بدون اسم' : item.itemName,
                       maxLines: 1,
@@ -181,8 +156,7 @@ class _CartScreenState extends State<CartScreen> {
                           children: [
                             IconButton(
                               onPressed: currentQty > 1
-                                  ? () => _updateQuantity(
-                                  item, currentQty - 1)
+                                  ? () => _updateQuantity(item, currentQty - 1)
                                   : null,
                               icon: const Icon(Icons.remove),
                             ),
@@ -231,10 +205,7 @@ class _CartScreenState extends State<CartScreen> {
                           total: _totalPrice,
                         ),
                       ),
-                    ).then((value) {
-                      // بعد العودة من شاشة الاعتماد نعيد تحميل السلة
-                      _loadCart();
-                    });
+                    ).then((_) => _loadCart());
                   },
                   child: const Text('الدفع'),
                 ),
