@@ -54,7 +54,7 @@ class ApiService {
 
       // 🧩 تجهيز البيانات بالشكل الذي يتوقعه الموديل User
       final jsonData = {
-        'customer_id': doc.id, // id = document id
+        'customer_id': data['customer_id'] ?? 0, // id = document id
         'name': data['name'] ?? '',
         'phone': data['phone'] ?? '',
         'email': data['email'] ?? '',

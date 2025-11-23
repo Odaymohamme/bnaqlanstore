@@ -1,129 +1,93 @@
-// lib/screens/category_items_screen.dart
+// lib/screens/all_categories_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/item.dart';
+import '../models/category.dart';
 import '../models/user.dart';
-import '../services/api_service.dart';
-import '../utils/constants.dart';
-import '../screens/product_detail.dart';
+import 'category_items_screen.dart';
 
-class CategoryItemsScreen extends StatefulWidget {
-  final User user;
-  final String categoryId; // ✅ النوع في فايربِيس String وليس int
-  final String categoryName;
-
-  const CategoryItemsScreen({
-    Key? key,
-    required this.user,
-    required this.categoryId,
-    required this.categoryName,
-  }) : super(key: key);
+class AllCategoriesScreen extends StatefulWidget {
+  const AllCategoriesScreen({Key? key}) : super(key: key);
 
   @override
-  State<CategoryItemsScreen> createState() => _CategoryItemsScreenState();
+  State<AllCategoriesScreen> createState() => _AllCategoriesScreenState();
 }
 
-class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
+class _AllCategoriesScreenState extends State<AllCategoriesScreen> {
+  final _firestore = FirebaseFirestore.instance;
   bool _loading = true;
-  List<Item> _items = [];
-  String? _error;
+  List<Category> _categories = [];
 
   @override
   void initState() {
     super.initState();
-    _loadItems();
+    _loadCategories();
   }
 
-  Future<void> _loadItems() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadCategories() async {
+    setState(() => _loading = true);
     try {
-      // ✅ الآن الجلب من Firestore
-      _items = await ApiService.fetchItemsByCategory(widget.categoryId);
+      final snap = await _firestore.collection('categories').get();
+      final cats = snap.docs.map((d) => Category.fromFirestore(d.data() as Map<String, dynamic>, d.id)).toList();
+      setState(() => _categories = cats);
     } catch (e) {
-      print("🔥 Error fetching category items: $e");
-      setState(() {
-        _error = 'فشل جلب الأصناف';
-      });
-    } finally {
-      setState(() {
-        _loading = false;
-      });
+      debugPrint('Error loading categories: $e');
     }
+    setState(() => _loading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.categoryName)),
+      appBar: AppBar(title: const Text('جميع التصنيفات')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _items.isEmpty
-          ? const Center(child: Text('لا توجد أصناف في هذا القسم'))
+          : _categories.isEmpty
+          ? const Center(child: Text('لا توجد تصنيفات'))
           : GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate:
-        const SliverGridDelegateWithFixedCrossAxisCount(
+        padding: const EdgeInsets.all(12),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 0.65,
+          childAspectRatio: 1.2,
         ),
-        itemCount: _items.length,
-        itemBuilder: (ctx, i) {
-          final it = _items[i];
-          final imageUrl = it.imageUrl.startsWith('http')
-              ? it.imageUrl
-              : '${Constants.supabaseUrl}/storage/v1/object/public/items/${it.imageUrl}';
-
-          return InkWell(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    ProductDetail(item: it, user: widget.user),
-              ),
-            ),
-            child: Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              elevation: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(12)),
-                      child: Image.network(
-                        imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder:
-                            (context, error, stackTrace) =>
-                        const Icon(Icons.image_not_supported),
-                      ),
-                    ),
+        itemCount: _categories.length,
+        itemBuilder: (context, i) {
+          final c = _categories[i];
+          return GestureDetector(
+            onTap: () {
+              // هنا نعيد نفس التوجيه كما في HomeScreen — يتوقع user لذلك نرسل user ضيف (id=0)
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => category_items_screen(
+                    user: const User(id: 0, name: '', phone: '', email: '', profileImage: '', balance: 0.0),
+                    categoryId: c.id,
+                    categoryName: c.name,
                   ),
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                      children: [
-                        Text(it.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${it.price} ر.س',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ],
+                ),
+              );
+            },
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // عرض الصورة مباشرة عبر NetworkImage؛ لو تريد نفس الـ cache استخدم CachedNetworkImage
+                  Image.network(
+                    c.image ?? '',
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Image.asset('assets/aqlanassets.jpg', fit: BoxFit.cover),
+                  ),
+                  Container(color: Colors.black.withOpacity(0.25)),
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      child: Text(
+                        c.name,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
                     ),
                   ),
                 ],

@@ -1,4 +1,3 @@
-// lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/user.dart';
@@ -28,17 +27,40 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
+    final phone = _phoneCtrl.text.trim();
+    final pass = _passCtrl.text;
+
+    if (phone.isEmpty || pass.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('الرجاء ملء رقم الهاتف وكلمة المرور'), backgroundColor: Colors.red.shade400),
+      );
+      return;
+    }
+
     setState(() {
       _loading = true;
     });
 
     try {
-      final phone = _phoneCtrl.text.trim();
-      final pass = _passCtrl.text;
-
       final User user = await ApiService.loginClient(phone, pass);
 
+      // طباعة استجابة السيرفر للمساعدة في التصحيح
+      try {
+        print('login response user: ${user.toJson()}');
+      } catch (_) {}
+
+      // تحقق من أن الـ id صالح
+      if (user.id <= 0) {
+        throw Exception('استجابة غير صالحة من السيرفر: معرف المستخدم غير موجود');
+      }
+
+      // انتظر الحفظ وتحقق منه
       await SessionManager.saveUser(user);
+      final savedId = await SessionManager.getUserId();
+      print('Saved user id: $savedId');
+      if (savedId <= 0) {
+        throw Exception('فشل حفظ بيانات الجلسة.');
+      }
 
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -57,7 +79,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _guestLogin() {
+  void _guestLogin() async {
     final guestUser = User(
       id: 0,
       name: 'زائر',
@@ -66,6 +88,11 @@ class _LoginScreenState extends State<LoginScreen> {
       profileImage: '',
       balance: 0,
     );
+
+    // لا نحفظ الزائر تلقائياً. إذا أردت حفظه كجلسة، يمكنك فك السطر التالي
+    // await SessionManager.saveUser(guestUser);
+
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => HomeScreen(user: guestUser)),
@@ -105,7 +132,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 32),
 
-                    // حقل رقم الهاتف باستخدام CustomTextField (كما كان)
+                    // حقل رقم الهاتف
                     CustomTextField(
                       controller: _phoneCtrl,
                       label: 'رقم الهاتف',
@@ -114,7 +141,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     const SizedBox(height: 12),
 
-                    // حقل كلمة المرور: TextFormField قياسي مع suffixIcon
+                    // حقل كلمة المرور
                     TextFormField(
                       controller: _passCtrl,
                       obscureText: _obscure,

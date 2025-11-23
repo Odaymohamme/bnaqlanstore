@@ -1,4 +1,3 @@
-// lib/screens/register_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -95,51 +94,63 @@ class _RegisterScreenState extends State<RegisterScreen> {
         profileImageUrl = await _uploadProfileImageToSupabase(_pickedImage!, filename);
       }
 
+      // مهم: Firestore document id هو نصي عشوائي وليس رقم.
+      // لذلك نضيف حقل رقمي فريد customer_id لكي يمكن قراءته كنقطة مرجعية في الـ frontend.
+      final customerId = DateTime.now().millisecondsSinceEpoch; // رقم فريد يعتمد على الوقت
+
       final docRef = FirebaseFirestore.instance.collection('customers').doc();
       final otp = _generateOtp();
       final otpExpiresAt = DateTime.now().add(const Duration(minutes: 10));
 
       final data = {
+        // نضيف customer_id كحقل رقمي لكي يقبله الموديل في الـ frontend
+        "customer_id": customerId,
         "name": name,
         "phone": phone,
         "email": email,
         "password": pass, // ملاحظة: كلمة المرور مخزنة كنص واضح، غير آمنة في الإنتاج
         "profile_image": profileImageUrl,
-        "registration_dat": FieldValue.serverTimestamp(),
+        "registration_date": FieldValue.serverTimestamp(),
         "is_verified": false,
         "otp_code": otp,
         "otp_expires_at": Timestamp.fromDate(otpExpiresAt),
         "level": "customer",
       };
 
+      // نحفظ الوثيقة
       await docRef.set(data);
+
+      // نحدّث نفس الوثيقة لحفظ معرف المستند أيضاً لو احتجنا
+      await docRef.update({"doc_id": docRef.id});
+
+      debugPrint('Registered customer docId=${docRef.id}, customer_id=$customerId');
 
       if (!mounted) return;
       await showDialog(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('تم التسجيل'),
-          content: const Text('تم إنشاء الحساب بنجاح.\nيمكنك الآن تسجيل الدخول.'),
+          content: const Text('تم إنشاء الحساب بنجاح.يمكنك الآن تسجيل الدخول.'),
           actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).pop(); // العودة لواجهة تسجيل الدخول
-              },
-              child: const Text('حسناً'),
-            ),
-          ],
+          TextButton(
+          onPressed: () {
+        Navigator.of(context).pop();
+        Navigator.of(context).pop(); // العودة لواجهة تسجيل الدخول
+        },
+          child: const Text('حسناً'),
         ),
-      );
+        ],
+      ),
+    );
     } catch (e) {
-      debugPrint("register error: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل التسجيل: ${e.toString()}')),
-        );
-      }
+    debugPrint("register error: $e");
+    if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('فشل التسجيل: ${e.toString()}')),
+    );
+    }
     } finally {
-      if (mounted) setState(() => _loading = false);
+    if (mounted) setState(() => _loading = false);
     }
   }
 

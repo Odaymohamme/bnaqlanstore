@@ -409,7 +409,31 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           padding: const EdgeInsets.all(16),
           physics: const AlwaysScrollableScrollPhysics(),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('التصنيفات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+           //const Text('التصنيفات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'التصنيفات',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => AllCategoriesScreen()),
+                    );
+                  },
+                  child: const Row(
+                    children: [
+                      Text('عرض الكل', style: TextStyle(color: Colors.blue)),
+                      Icon(Icons.arrow_forward_ios, size: 14, color: Colors.blue),
+                    ],
+                  ),
+                ),
+              ],
+            )
+
             const SizedBox(height: 8),
             SizedBox(
               height: 50,
