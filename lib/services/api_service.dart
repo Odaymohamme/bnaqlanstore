@@ -2,9 +2,11 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:mime/mime.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import '../models/user.dart';
 import '../models/category.dart';
 import '../models/special_offer.dart';
@@ -25,6 +27,8 @@ import 'dart:convert';
 class ApiService {
 
   static final _firestore = FirebaseFirestore.instance;
+  static final _supabase = Supabase.instance.client;
+
   static void someMethod() {
     debugPrint('رسالة ديباج لعرض الخطأ أو البيانات');
   }
@@ -701,52 +705,70 @@ class ApiService {
     }
   }
 
-  /// جلب بيانات الملف الشخصي
-  static Future<User> fetchProfile(int userId) async {
-    final url = Uri.parse(
-        '${Constants.baseUrl}/endpoints/get_profile.php?customer_id=$userId');
-    final resp = await http.get(url);
-    final data = _safeJsonObject(resp.body);
-    if (data['success'] != true) {
-      throw Exception(data['message'] ?? 'خطأ في جلب الملف الشخصي');
-    }
-    return User.fromJson(data['data']);
+  // -----------------------------
+  // 1)  جلب بيانات المستخدم
+  static Future<User?> fetchProfile(String customerId) async {
+  final snap = await _firestore
+      .collection('customers')
+      .where('customer_id', isEqualTo: customerId)
+      .limit(1)
+      .get();
+
+  if (snap.docs.isEmpty) return null;
+
+  final data = snap.docs.first.data();
+  return User.fromJson(data);
   }
 
-  /// تحديث بيانات الملف الشخصي (بدون تشفير كلمة المرور حسب طلبك)
+  /// تحديث الملف الشخصي
   static Future<bool> updateProfile({
-    required int customerId,
-    required String name,
-    required String email,
-    String? password,
-    File? profileImage,
-    bool deleteImage = false, // ✅ أضفنا هذا
+  required String customerId,
+  required String name,
+  required String email,
+  String? password,
+  File? profileImage,
   }) async {
-    final uri = Uri.parse('${Constants.baseUrl}/endpoints/update_profile.php');
-    final request = http.MultipartRequest('POST', uri);
+  try {
+  // ⿡ الحصول على الوثيقة بواسطة customer_id
+  final snap = await _firestore
+      .collection('customers')
+      .where('customer_id', isEqualTo: customerId)
+      .limit(1)
+      .get();
 
-    request.fields['customer_id'] = customerId.toString();
-    request.fields['name'] = name;
-    request.fields['email'] = email;
-    request.fields['deleteImage'] = deleteImage ? '1' : '0'; // ✅ نرسله للسيرفر
+  if (snap.docs.isEmpty) return false;
 
-    if (password != null) {
-      request.fields['password'] = password;
-    }
+  final docRef = snap.docs.first.reference;
+  String? imageUrl;
 
-    if (profileImage != null && !deleteImage) {
-      request.files.add(await http.MultipartFile.fromPath(
-        'profile_image',
-        profileImage.path,
-      ));
-    }
+  // ⿢ رفع الصورة إلى supabase إن وجدت
+  if (profileImage != null) {
+  final fileName = "profile_${customerId}_${DateTime.now().millisecondsSinceEpoch}.jpg";
 
-    final res = await request.send();
-    final body = await res.stream.bytesToString();
-    if (res.statusCode != 200) return false;
-    final data = jsonDecode(body);
-    return data['success']==true;
+  final res = await _supabase.storage
+      .from('customers')
+      .upload(fileName, profileImage);
+
+  imageUrl = _supabase.storage.from('customers').getPublicUrl(fileName);
   }
+
+  // ⿣ تجهيز البيانات للتحديث
+  final updateData = {
+  'name': name,
+  'email': email,
+  if (password != null) 'password': password,
+  if (imageUrl != null) 'profile_image': imageUrl,
+  };
+
+  // ⿤ تنفيذ التحديث
+  await docRef.update(updateData);
+  return true;
+  } catch (e) {
+  print("🔥 updateProfile error: $e");
+  return false;
+  }
+  }
+
   /// (اختياري) رفع صورة البروفايل لوحدها — لأن الـ Drawer الحالي يستخدمه
   static Future<String?> uploadProfileImage(int customerId, File file) async {
     final uri = Uri.parse(
@@ -904,6 +926,8 @@ class ApiService {
   }
 
   /// 🔍 البحث عن الأصناف من Firestore
+
+  /// 🔍 البحث عن الأصناف من Firestore
   static Future<List<Item>> searchItems(String query) async {
     try {
       QuerySnapshot snapshot;
@@ -927,7 +951,7 @@ class ApiService {
       print("Firestore search error: $e");
       return [];
     }
-    }
+  }
 
   static Future<Map<String, dynamic>?> fetchStoreInfo() async {
     final uri = Uri.parse('${Constants.baseUrl}/endpoints/fetch_store.php');

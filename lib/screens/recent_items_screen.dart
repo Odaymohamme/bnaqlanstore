@@ -1,11 +1,9 @@
-// lib/screens/recent_items_screen.dart
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/item.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
-import '../utils/constants.dart';
-import 'product_detail.dart';
+import '../screens/product_detail.dart';
 
 class RecentItemsScreen extends StatefulWidget {
   final User user;
@@ -44,83 +42,102 @@ class _RecentItemsScreenState extends State<RecentItemsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: const Text('المشتريات الأخيرة')),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? Center(child: Text(_error!))
-            : _items.isEmpty
-            ? const Center(child: Text('لا توجد مشتريات حديثة'))
-            : GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 0.58,
+      appBar: AppBar(title: const Text('المشتريات الأخيرة')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(child: Text(_error!))
+          : _items.isEmpty
+          ? const Center(child: Text('لا توجد مشتريات حديثة'))
+          : GridView.builder(
+        padding: const EdgeInsets.all(16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 0.58,
+        ),
+        itemCount: _items.length,
+        itemBuilder: (_, i) {
+          final it = _items[i];
+
+          return InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ProductDetail(item: it, user: widget.user),
+              ),
             ),
-            itemCount: _items.length,
-            itemBuilder: (_, i) {
-              final it = _items[i];
-
-              // 🔹 بناء رابط الصورة من Supabase (حقل imageUrl يخزن اسم الملف فقط)
-              final imageUrl = '${Constants.supabaseUrl}/storage/v1/object/public/items/${it.imageUrl}';
-
-              return InkWell(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ProductDetail(item: it, user: widget.user),
-                  ),
-                ),
-                child: Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 2,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
+            child: Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        ClipRRect(
                           borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                           child: CachedNetworkImage(
-                            imageUrl: imageUrl,
+                            imageUrl: it.imageUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
                             placeholder: (context, _) => const Center(child: CircularProgressIndicator()),
                             errorWidget: (context, _, __) => const Icon(Icons.image_not_supported),
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              it.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                        if (it.isSoldOut)
+                          Positioned(
+                            left: 8,
+                            top: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(6)),
+                              child: const Text('نفدت الكمية !', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${it.price} ر.س',
-                              style: const TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          it.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${it.price} ر.س',
+                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: it.isSoldOut ? null : () {
+                          // إضافة للسلة
+                        },
+                        style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
+                        child: Text(it.isSoldOut ? 'نفدت الكمية' : 'إضافة إلى السلة'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-        );
-    }
+          );
+        },
+      ),
+    );
+  }
 }

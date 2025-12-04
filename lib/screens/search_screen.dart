@@ -21,7 +21,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    _loadAllItems(); // عند فتح الشاشة نجلب كل الأصناف أولاً
+    _loadAllItems();
   }
 
   @override
@@ -64,76 +64,68 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: const Text("البحث عن صنف")),
-        body: Column(
+      appBar: AppBar(title: const Text("البحث عن صنف")),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
             children: [
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _searchCtrl,
-                        decoration: InputDecoration(
-                          labelText: "ابحث عن صنف...",
-                          prefixIcon: const Icon(Icons.search),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
+              Expanded(
+                child: TextField(
+                  controller: _searchCtrl,
+                  decoration: InputDecoration(
+                    labelText: "ابحث عن صنف...",
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onSubmitted: (_) => _doSearch(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(onPressed: _doSearch, child: const Text("بحث"))
+            ],
+          ),
+        ),
+        if (_loading) const LinearProgressIndicator(),
+        Expanded(
+          child: _results.isEmpty
+              ? const Center(child: Text("🔍 لم يتم العثور على أصناف"))
+              : ListView.builder(
+            itemCount: _results.length,
+            itemBuilder: (context, i) {
+              final it = _results[i];
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: ListTile(
+                  leading: Stack(
+                    children: [
+                      it.imageUrl.isNotEmpty
+                          ? Image.network(it.imageUrl, width: 50, height: 50, fit: BoxFit.cover)
+                          : const Icon(Icons.shopping_bag, size: 40, color: Colors.grey),
+                      if (it.isSoldOut)
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            color: Colors.red,
+                            child: const Text('نفدت الكمية !', style: TextStyle(color: Colors.white, fontSize: 10)),
                           ),
                         ),
-                        onSubmitted: (_) => _doSearch(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _doSearch,
-                      child: const Text("بحث"),
-                    )
-                  ],
-                ),
-              ),
-              if (_loading) const LinearProgressIndicator(),
-              Expanded(
-                child: _results.isEmpty
-                    ? const Center(child: Text("🔍 لم يتم العثور على أصناف"))
-                    : ListView.builder(
-                  itemCount: _results.length,
-                  itemBuilder: (context, i) {
-                    final it = _results[i];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      child: ListTile(
-                        leading: it.imageUrl.isNotEmpty
-                            ? Image.network(
-                          it.imageUrl, // 🔹 رابط الصورة من Supabase
-                          width: 50,
-                          height: 50,
-                          fit: BoxFit.cover,
-                        )
-                            : const Icon(Icons.shopping_bag,
-                            size: 40, color: Colors.grey),
-                        title: Text(it.name),
-                        subtitle: Text(it.description,
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: Text("${it.price} ر.ي",
-                            style:
-                            const TextStyle(fontWeight: FontWeight.bold)),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  ProductDetail(item: it, user: widget.user),
-                            ),
-                          );
-                        },
-                      ),
-                    );
+                    ],
+                  ),
+                  title: Text(it.name),
+                  subtitle: Text(it.description, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: Text("${it.price} ر.س", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => ProductDetail(item: it, user: widget.user)));
                   },
                 ),
-              ),
-            ],
-            ),
-        );
-    }
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
 }

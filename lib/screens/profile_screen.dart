@@ -1,250 +1,237 @@
-// lib/screens/profile_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../services/api_service.dart';
-import '../models/user.dart';
-import '../utils/constants.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import '../models/user.dart'; // تأكد من المسار الصحيح
 
 class ProfileScreen extends StatefulWidget {
-  final User user;
-  const ProfileScreen({Key? key, required this.user}) : super(key: key);
+  User user;
+
+  ProfileScreen({super.key, required this.user});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  late User _currentUser;
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _nameCtrl;
+  late TextEditingController _emailCtrl;
+  late TextEditingController _phoneCtrl;
+  late TextEditingController _imageCtrl;
+  late TextEditingController _passwordCtrl;
 
-  File? _pickedImage;
+  bool _loading = true;
   bool _saving = false;
-  bool _loadingProfile = false;
+  XFile? _pickedImage;
 
   @override
   void initState() {
     super.initState();
-    _currentUser = widget.user;
-    _nameController.text = _currentUser.name ?? '';
-    _emailController.text = _currentUser.email ?? '';
+    _nameCtrl = TextEditingController();
+    _emailCtrl = TextEditingController();
+    _phoneCtrl = TextEditingController();
+    _imageCtrl = TextEditingController();
+    _passwordCtrl = TextEditingController();
+
+    // جلب بيانات المستخدم من Firestore عند فتح الشاشة
+    _fetchUser();
+  }
+
+  Future<void> _fetchUser() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('customers')
+          .where('customer_id', isEqualTo: widget.user.id)
+          .limit(1)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        final fetchedUser = User.fromJson(snap.docs.first.data());
+        setState(() {
+          widget.user = fetchedUser;
+          _nameCtrl.text = fetchedUser.name;
+          _emailCtrl.text = fetchedUser.email;
+          _phoneCtrl.text = fetchedUser.phone;
+          _imageCtrl.text = fetchedUser.profileImage;
+          _loading = false;
+        });
+      } else {
+        setState(() {
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('فشل جلب البيانات: $e')));
+    }
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+        source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+
+    setState(() {
+      _pickedImage = picked;
+    });
+
+    try {
+      final bytes = await picked.readAsBytes();
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final filename = '${ts}_${picked.name}';
+      final supabase = Supabase.instance.client;
+
+      // رفع الصورة إلى باكت 'products'
+      await supabase.storage.from('products').uploadBinary(
+        filename,
+        bytes,
+        fileOptions: const FileOptions(upsert: true),
+      );
+
+      // الحصول على رابط عام للصورة
+      final publicUrl =
+      supabase.storage.from('products').getPublicUrl(filename);
+
+      setState(() {
+        _imageCtrl.text = publicUrl;
+      });
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('تم رفع الصورة بنجاح')));
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('فشل رفع الصورة: $e')));
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+
+    final data = {
+      'name': _nameCtrl.text.trim(),
+      'email': _emailCtrl.text.trim(),
+      'phone': _phoneCtrl.text.trim(),
+      'profile_image': _imageCtrl.text.trim(),
+    };
+
+    // إذا تم إدخال كلمة مرور جديدة، أضفها إلى البيانات
+    if (_passwordCtrl.text.trim().isNotEmpty) {
+      data['password'] = _passwordCtrl.text.trim();
+    }
+
+    try {
+      final col = FirebaseFirestore.instance.collection('customers');
+      final snap = await col
+          .where('customer_id', isEqualTo: widget.user.id)
+          .limit(1)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        await col.doc(snap.docs.first.id).update(data);
+      } else {
+        data['customer_id'] = widget.user.id as String;
+        await col.add(data);
+      }
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('تم حفظ البيانات')));
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('خطأ أثناء الحفظ: $e')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _phoneCtrl.dispose();
+    _imageCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _pickImage() async {
-    try {
-      final x = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-      );
-      if (x != null) {
-        setState(() => _pickedImage = File(x.path));
-      }
-    } catch (e) {
-      debugPrint('Image pick error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to pick image')),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteProfileImage() async {
-    if (_saving) return;
-    setState(() => _saving = true);
-
-    try {
-      final ok = await ApiService.updateProfile(
-        customerId: _currentUser.id,
-        name: _nameController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passwordController.text.isNotEmpty ? _passwordController.text : null,
-        profileImage: null,
-        deleteImage: true,
-      );
-
-      if (ok) {
-        final fresh = await ApiService.fetchProfile(_currentUser.id);
-        if (fresh != null) {
-          setState(() {
-            _currentUser = fresh;
-            _pickedImage = null;
-          });
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✅ تم حذف الصورة بنجاح')),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('❌ فشل حذف الصورة')),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('deleteProfileImage error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error deleting image: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _updateProfile() async {
-    if (_saving) return;
-    setState(() => _saving = true);
-
-    try {
-      final ok = await ApiService.updateProfile(
-        customerId: _currentUser.id,
-        name: _nameController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passwordController.text.isNotEmpty ? _passwordController.text : null,
-        profileImage: _pickedImage,
-      );
-
-      if (ok) {
-        final fresh = await ApiService.fetchProfile(_currentUser.id);
-        if (fresh != null) {
-          setState(() {
-            _currentUser = fresh;
-            _pickedImage = null;
-            _passwordController.clear();
-          });
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✅ تم التحديث بنجاح')),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('❌ فشل التحديث')),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('updateProfile error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating profile: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  ImageProvider? _buildAvatarImageProvider() {
-    if (_pickedImage != null) {
-      return FileImage(_pickedImage!);
-    }
-
-    final serverImage = (_currentUser.profileImage ?? '').trim();
-    if (serverImage.isNotEmpty) {
-      final base = Constants.baseUrl.endsWith('/')
-          ? Constants.baseUrl.substring(0, Constants.baseUrl.length - 1)
-          : Constants.baseUrl;
-      final url = serverImage.startsWith('http')
-          ? serverImage
-          : '$base/uploads/$serverImage?v=${DateTime.now().millisecondsSinceEpoch}';
-      return NetworkImage(url);
-    }
-
-    return null;
   }
 
   @override
   Widget build(BuildContext context) {
-    final avatarProvider = _buildAvatarImageProvider();
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ملفي الشخصي'),
-        centerTitle: true,
-      ),
-      body: _loadingProfile
+      appBar: AppBar(title: const Text('الملف الشخصي')),
+      body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            GestureDetector(
-              onTap: _pickImage,
-              child: CircleAvatar(
-                radius: 60,
-                backgroundColor: Colors.grey[300],
-                backgroundImage: avatarProvider,
-                child: avatarProvider == null
-                    ? const Icon(Icons.person, size: 60, color: Colors.white)
-                    : null,
+            CircleAvatar(
+              radius: 60,
+              backgroundImage: _pickedImage != null
+                  ? FileImage(File(_pickedImage!.path))
+                  : (_imageCtrl.text.isNotEmpty
+                  ? NetworkImage(_imageCtrl.text)
+                  : const AssetImage('assets/images/default_avatar.png')
+              as ImageProvider),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: _pickImage,
+              icon: const Icon(Icons.photo_camera),
+              label: const Text('تغيير الصورة'),
+            ),
+            const SizedBox(height: 16),
+            Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  TextFormField(
+                    controller: _nameCtrl,
+                    decoration: const InputDecoration(labelText: 'الاسم'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _emailCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'البريد الإلكتروني'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _phoneCtrl,
+                    decoration:
+                    const InputDecoration(labelText: 'الهاتف'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _passwordCtrl,
+                    decoration: const InputDecoration(
+                        labelText: 'كلمة المرور الجديدة'),
+                    obscureText: true,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _saving ? null : _saveProfile,
+                      icon: _saving
+                          ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                          : const Icon(Icons.save),
+                      label: Text(_saving
+                          ? 'يتم الحفظ...'
+                          : 'حفظ التغييرات'),
+                    ),
+                  )
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                TextButton.icon(
-                  onPressed: _pickImage,
-                  icon: const Icon(Icons.photo_library),
-                  label: const Text('اختر صورة'),
-                ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: _deleteProfileImage,
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  label: const Text('حذف الصورة', style: TextStyle(color: Colors.red)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'الاسم'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'البريد الإلكتروني'),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'كلمة المرور (اختياري)'),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _saving ? null : _updateProfile,
-                icon: _saving
-                    ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-                    : const Icon(Icons.save),
-                label: Text(_saving ? 'جارٍ الحفظ...' : 'حفظ التعديلات'),
-              ),
-            ),
+            )
           ],
         ),
       ),
