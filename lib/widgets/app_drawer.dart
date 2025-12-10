@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/add_address_screen.dart';
+import '../screens/offers_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/store_contact_screen.dart';
 import '../models/user.dart';
@@ -69,7 +70,15 @@ class _AppDrawerState extends State<AppDrawer> {
               backgroundColor: Colors.grey[400],
             ),
 
+
           ),
+          _buildTile(Icons.history, ' الــــعروض الخاصــــة ', () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => OffersScreen()),
+            );
+          }),
           _buildTile(Icons.home, 'الرئيسية', () {
             Navigator.pushReplacement(
               context,

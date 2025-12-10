@@ -1,4 +1,6 @@
+import 'package:aqlanstore/services/connection_service.dart';
 import 'package:aqlanstore/theme/app_colors.dart';
+import 'package:aqlanstore/widgets/network_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -27,6 +29,7 @@ Future<void> main() async {
     url: supabaseUrl,
     anonKey: supabaseAnonKey,
   );
+  ConnectionService.initialize();
 
   runApp(const MyApp());
 }
@@ -41,6 +44,16 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const SplashScreen(),
+
+      builder: (context, child) {
+        return Column(
+          children: [
+            const NetworkDialog(), // ✅ شريط الإنترنت
+            Expanded(child: child!),
+          ],
+        );
+      },
     );
   }
+
 }
