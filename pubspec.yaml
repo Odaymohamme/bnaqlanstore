@@ -46,6 +46,7 @@ dependencies:
   flutter_dotenv:
   google_fonts:
   connectivity_plus:
+  intl:
 
 
 
@@ -88,6 +89,8 @@ flutter:
     - assets/aqlanassets.jpg
     - assets/images/whatsapp.png
     - .env
+    - assets/fonts/
+
 
 
 

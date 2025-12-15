@@ -136,7 +136,7 @@ class ApiService {
   }
   // 🔹 جلب كل المنتجات من Firestore
   static Future<List<Item>> fetchItems() async {
-    final snapshot = await _firestore.collection('items').get();
+    final snapshot = await _firestore.collection('itemsس').get();
     return snapshot.docs
         .map((doc) => Item.fromFirestore(doc.data(), doc.id))
         .toList();

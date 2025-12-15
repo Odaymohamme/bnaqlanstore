@@ -9,7 +9,6 @@ import '../utils/constants.dart';
 import '../screens/home_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/orders_screen.dart';
-
 class AppDrawer extends StatefulWidget {
   final User user;
   const AppDrawer({Key? key, required this.user}) : super(key: key);
@@ -62,16 +61,15 @@ class _AppDrawerState extends State<AppDrawer> {
             currentAccountPicture: CircleAvatar(
               radius: 40,
               backgroundImage: _user.profileImage.isNotEmpty
-                  ? NetworkImage(_user.profileImage) // استخدم الرابط الكامل المخزن في Supabase
+                  ? NetworkImage(_user.profileImage)
                   : null,
               child: _user.profileImage.isEmpty
                   ? const Icon(Icons.person, size: 40, color: Colors.white)
                   : null,
               backgroundColor: Colors.grey[400],
             ),
-
-
           ),
+
           _buildTile(Icons.history, ' الــــعروض الخاصــــة ', () {
             Navigator.pop(context);
             Navigator.push(
@@ -79,18 +77,19 @@ class _AppDrawerState extends State<AppDrawer> {
               MaterialPageRoute(builder: (_) => OffersScreen()),
             );
           }),
+
           _buildTile(Icons.home, 'الرئيسية', () {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (_) => HomeScreen(user: _user)),
             );
           }),
+
           _buildTile(Icons.person, 'ملفي الشخصي', () async {
             await Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => ProfileScreen(user: _user)),
             );
-            // تحديث البيانات بعد العودة من الملف الشخصي
             try {
               final snap = await FirebaseFirestore.instance
                   .collection('customers')
@@ -99,26 +98,37 @@ class _AppDrawerState extends State<AppDrawer> {
                   .get();
 
               if (snap.docs.isNotEmpty && mounted) {
-                setState(() => _user = User.fromJson(snap.docs.first.data()));
+                setState(() =>
+                _user = User.fromJson(snap.docs.first.data()));
               }
             } catch (_) {}
           }),
-          _buildTile(Icons.history, 'الطلبات السابقة', () {
+
+          // ✅ زر الطلبات السابقة (مصحح)
+          _buildTile(Icons.receipt_long, 'طلباتي السابقة', () {
             Navigator.pop(context);
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => OrdersScreen(user: _user)),
+              MaterialPageRoute(
+                builder: (_) => OrdersHistoryScreen(
+                  customerId: _user.id.toString(), // ✅ الصحيح
+                ),
+              ),
             );
           }),
+
           _buildTile(Icons.location_on_outlined, 'عناوين التوصيل', () {
             Navigator.pop(context);
             Navigator.push(
               context,
               MaterialPageRoute(
-                  builder: (_) => AddAddressScreen(user: _user)),
+                builder: (_) => AddAddressScreen(user: _user),
+              ),
             );
           }),
+
           const Spacer(),
+
           _buildTile(Icons.exit_to_app, 'تسجيل الخروج', () {
             Navigator.pushReplacement(
               context,

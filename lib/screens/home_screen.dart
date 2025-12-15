@@ -38,6 +38,9 @@ class _HomeScreenState extends State<HomeScreen>
   final _firestore = FirebaseFirestore.instance;
   final PageController _pageController = PageController(viewportFraction: 0.85);
 
+  // new: controller for scroll pagination
+  final ScrollController _scrollController = ScrollController();
+
   bool _loading = true;
   bool _loadingRecent = true;
 
@@ -49,6 +52,14 @@ class _HomeScreenState extends State<HomeScreen>
   // خريطة لتسهيل إيجاد الصنف بواسطة المعرف
   Map<String, Item> _itemsById = {};
 
+  // pagination helpers
+  DocumentSnapshot? _lastItemDoc;
+  bool _isLoadingMore = false;
+  bool _hasMoreItems = true;
+  static const int _pageSize = 20;
+
+  // internet state
+  bool _hasInternet = true;
 
   final Set<String> _favoriteIds = {};
   final Set<String> _addingToCartIds = {};
@@ -62,15 +73,20 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _loadAllInitialData();
     _startAutoSlide();
+
+    // listen internet changes and show overlay
     ConnectionService.onConnectionChange.listen((hasInternet) {
-      if (!hasInternet) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('⚠️ لا يوجد اتصال بالإنترنت'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
-          ),
-        );
+      if (!mounted) return;
+      setState(() {
+        _hasInternet = hasInternet;
+      });
+    });
+
+    // listen for scroll to load more
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >=
+          _scrollController.position.maxScrollExtent - 200) {
+        _loadMoreItems();
       }
     });
   }
@@ -82,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     _timer?.cancel();
     _pageController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -111,15 +128,15 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) setState(() => _loading = false);
   }
 
-  /// 🗂 تحميل الفئات والعروض والمنتجات
+  /// 🗂 تحميل الفئات والعروض والمنتجات (أول دفعة)
   Future<void> _loadData() async {
     try {
       final results = await Future.wait([
         _firestore.collection('categories').get(),
         _firestore.collection('special_offers').get(),
-    _firestore.collection('items').limit(50).get(),
-
-    ]);
+        // تحميل أول دفعة من items (مع محاولة استخدام created_at)
+        _firestore.collection('items').orderBy('created_at', descending: true).limit(_pageSize).get(),
+      ]);
 
       _categories = results[0].docs
           .map((d) => Category.fromFirestore(d.data() as Map<String, dynamic>, d.id))
@@ -129,13 +146,91 @@ class _HomeScreenState extends State<HomeScreen>
           .map((d) => SpecialOffer.fromFirestore(d.data() as Map<String, dynamic>, d.id))
           .toList();
 
-      _items = results[2].docs
+      // items initial
+      final itemSnap = results[2] as QuerySnapshot;
+      _items = itemSnap.docs
           .map((d) => Item.fromFirestore(d.data() as Map<String, dynamic>, d.id))
           .toList();
 
+      if (itemSnap.docs.isNotEmpty) {
+        _lastItemDoc = itemSnap.docs.last;
+      } else {
+        _hasMoreItems = false;
+      }
+
       if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('❌ خطأ في تحميل البيانات: $e');
+      // fallback: if orderBy('created_at') failed (field missing), try orderBy(documentId)
+      debugPrint('⚠️ تحميل أولي بcreated_at فشل: $e — محاولة بديل documentId');
+      try {
+        final catSnap = await _firestore.collection('categories').get();
+        final offerSnap = await _firestore.collection('special_offers').get();
+        final itemSnap = await _firestore.collection('items').orderBy(FieldPath.documentId).limit(_pageSize).get();
+
+        _categories = catSnap.docs
+            .map((d) => Category.fromFirestore(d.data() as Map<String, dynamic>, d.id))
+            .toList();
+
+        _offers = offerSnap.docs
+            .map((d) => SpecialOffer.fromFirestore(d.data() as Map<String, dynamic>, d.id))
+            .toList();
+
+        _items = itemSnap.docs
+            .map((d) => Item.fromFirestore(d.data() as Map<String, dynamic>, d.id))
+            .toList();
+
+        if (itemSnap.docs.isNotEmpty) _lastItemDoc = itemSnap.docs.last;
+        if (itemSnap.docs.length < _pageSize) _hasMoreItems = false;
+
+        if (mounted) setState(() {});
+      } catch (e2) {
+        debugPrint('❌ فشل البديل أيضًا: $e2');
+      }
+    }
+  }
+
+  /// تحميل المزيد عند التمرير (pagination) — يحاول استخدام created_at ثم documentId كبديل
+  Future<void> _loadMoreItems() async {
+    if (_isLoadingMore || !_hasMoreItems) return;
+    if (_lastItemDoc == null) return;
+
+    _isLoadingMore = true;
+    try {
+      // حاول أولًا باستخدام created_at ordering
+      Query<Map<String, dynamic>> query = _firestore.collection('items')
+          .orderBy('created_at', descending: true)
+          .startAfterDocument(_lastItemDoc!)
+          .limit(_pageSize);
+
+      QuerySnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await query.get();
+      } catch (e) {
+        // إذا فشل (مثلاً created_at غير موجود) حاول ب documentId
+        debugPrint('⚠️ تحميل المزيد باستخدام created_at فشل: $e — محاولة documentId');
+        final q2 = _firestore.collection('items')
+            .orderBy(FieldPath.documentId)
+            .startAfterDocument(_lastItemDoc!)
+            .limit(_pageSize);
+        snap = await q2.get() as QuerySnapshot<Map<String, dynamic>>;
+      }
+
+      if (snap.docs.isEmpty) {
+        _hasMoreItems = false;
+      } else {
+        final newItems = snap.docs
+            .map((d) => Item.fromFirestore(d.data() as Map<String, dynamic>, d.id))
+            .toList();
+
+        _items.addAll(newItems);
+        _lastItemDoc = snap.docs.last;
+        if (newItems.length < _pageSize) _hasMoreItems = false;
+      }
+    } catch (e) {
+      debugPrint('❌ خطأ في تحميل المزيد: $e');
+      // لا نُحدد _hasMoreItems هنا لأن قد يكون خطأ مؤقت
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
@@ -299,653 +394,480 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isFavorite(Item it) => _favoriteIds.contains(it.id);
 
   /// 🖼 تصحيح رابط الصور من Supabase
-  /// 🖼 تصحيح رابط الصور من Supabase
   String _fixSupabaseImageUrl(String? url) {
     if (url == null || url.isEmpty) return '';
     if (url.startsWith('http')) return url;
     return 'https://nrjwzdkhwcqokwlmkzem.supabase.co/storage/v1/object/public/products/$url';
   }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      backgroundColor: kBeige,
-      appBar: AppBar(
-        backgroundColor: kPrimaryRed,
-        title: Text('مرحبًا ${widget.user.name}',
-            style: const TextStyle(color: Colors.white)),
-        actions: [
-          IconButton(
-              icon: const Icon(Icons.search, color: Colors.white),
-              onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => SearchScreen(user: widget.user)))),
-          IconButton(
-            icon: const Icon(Icons.shopping_cart, color: Colors.white),
-            onPressed: () {
-              if (widget.user.id == 0) {
-                showDialog( context:context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text("تنبيه"),
-                    content: const Text("⚠ يجب تسجيل الدخول لمشاهدة السلة"),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text("متابعة كزائر")),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: kPrimaryRed),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) => const RegisterScreen()));
-                        },
-                        child: const Text("تسجيل الدخول",
-                            style: TextStyle(color: Colors.white)),
-                      ),
-                    ],
-                  ),
-                );
-                return;
-              }
-              Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => CartScreen(user: widget.user)));
-            },
-          ),
-        ],
-      ),
-      drawer: AppDrawer(user: widget.user),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: kPrimaryRed))
-          : RefreshIndicator(
-        color: kPrimaryRed,
-        backgroundColor: kBeige,
-        onRefresh: _loadAllInitialData,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: kBeige,
+          appBar: AppBar(
+            backgroundColor: kPrimaryRed,
+            title: Text('مرحبًا ${widget.user.name}',
+                style: const TextStyle(color: Colors.white)),
+            actions: [
+              IconButton(
+                  icon: const Icon(Icons.search, color: Colors.white),
+                  onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => SearchScreen(user: widget.user)))),
 
-
-              /// 🗂 قسم الفئات
-              /// ===== شبكة الفئات 4x4 قابلة للتمرير داخل صندوق + زر "عرض الكل" =====
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // سطر العنوان + زر عرض الكل
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('التصنيفات',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.shopping_cart, color: Colors.white),
+                onPressed: () {
+                  if (widget.user.id == 0) {
+                    showDialog( context:context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text("تنبيه"),
+                        content: const Text("⚠ يجب تسجيل الدخول لمشاهدة السلة"),
+                        actions: [
                           TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text("متابعة كزائر")),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: kPrimaryRed),
                             onPressed: () {
+                              Navigator.pop(ctx);
                               Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => CategoryItemsScreen(
-                                    user: widget.user,
-                                    categoryId: null,
-                                    categoryName: null,
-                                  ),
-                                ),
-                              );
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (context) => const RegisterScreen()));
                             },
-                            child: const Text('عرض الكل'),
+                            child: const Text("تسجيل الدخول",
+                                style: TextStyle(color: Colors.white)),
                           ),
                         ],
                       ),
-                    ),
+                    );
+                    return;
+                  }
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => CartScreen(user: widget.user)));
+                },
+              ),
+            ],
+          ),
+          drawer: AppDrawer(user: widget.user),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator(color: kPrimaryRed))
+              : RefreshIndicator(
+            color: kPrimaryRed,
+            backgroundColor: kBeige,
+            onRefresh: _loadAllInitialData,
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
 
-                    LayoutBuilder(builder: (context, constraints) {
-                      final screenW = MediaQuery.of(context).size.width;
-                      const outerPadding = 16.0;
-                      const crossSpacing = 8.0;
-                      const mainSpacing = 8.0;
-                      const columns = 3;
-                      const visibleRows = 2;
-
-                      final availableWidth =
-                          screenW - (outerPadding * 3) - (crossSpacing * (columns - 1));
-                      final itemWidth = (availableWidth / columns).clamp(64.0, 220.0);
-                      final avatarSize = (itemWidth * 0.67).clamp(44.0, 80.0);
-                      const textHeight = 28.0; // ارتفاع ثابت للنص
-                      const verticalSpacing = 6.0; // المسافة بين الصورة والنص
-
-                      // ارتفاع صف = الصورة + المسافة + النص + mainSpacing
-                      final rowHeight = avatarSize + verticalSpacing + textHeight + mainSpacing;
-                      // gridHeight = ارتفاع صف * عدد الصفوف المراد عرضها
-                      final gridHeight =
-                          (rowHeight * visibleRows) + mainSpacing; // safety margin
-
-                      return SizedBox(
-                        height: gridHeight,
-                        child: GridView.builder(
-                          physics: const BouncingScrollPhysics(),
-                          padding: const EdgeInsets.symmetric(horizontal: outerPadding / 2),
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: columns,
-                            mainAxisSpacing: mainSpacing,
-                            crossAxisSpacing: crossSpacing,
-                            childAspectRatio: itemWidth / (avatarSize + verticalSpacing + textHeight),
-                          ),
-                          itemCount: _categories.length,
-                          itemBuilder: (context, i) {
-                            final c = _categories[i];
-                            final imageUrl = (c.image.isNotEmpty)
-                                ? c.image
-                                : (c.imageUrl.isNotEmpty ? c.imageUrl : '');
-
-                            return InkWell(
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => CategoryItemsScreen(
-                                    user: widget.user,
-                                    categoryId: c.id,
-                                    categoryName: c.name,
-                                  ),
-                                ),
+                  /// 🗂 قسم الفئات
+                  /// ===== شبكة الفئات 4x4 قابلة للتمرير داخل صندوق + زر "عرض الكل" =====
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // سطر العنوان + زر عرض الكل
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('التصنيفات',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => CategoryItemsScreen(
+                                        user: widget.user,
+                                        categoryId: null,
+                                        categoryName: null,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text('عرض الكل'),
                               ),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: avatarSize,
-                                    height: avatarSize,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.grey[200],
-                                      boxShadow: [
-                                        BoxShadow(
-                                            color: Colors.black12,
-                                            blurRadius: 4,
-                                            offset: Offset(0, 2))
-                                      ],
-                                    ),
-                                    child: ClipOval(
-                                      child: imageUrl.isNotEmpty
-                                          ? CachedNetworkImage(
-                                        imageUrl: imageUrl,
-                                        fit: BoxFit.cover,
-                                        width: avatarSize,
-                                        height: avatarSize,
-                                        placeholder: (_, __) =>
-                                            Container(color: Colors.grey[200]),
-                                        errorWidget: (_, __, ___) => Image.asset(
-                                          'assets/aqlanassets.jpg',
-                                          fit: BoxFit.cover,
-                                        ),
-                                      )
-                                          : Image.asset('assets/aqlanassets.jpg',
-                                          fit: BoxFit.cover),
-                                    ),
-                                  ),
-                                  const SizedBox(height: verticalSpacing),
-                                  SizedBox(
-                                    height: textHeight,
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Text(
-                                        c.name,
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                            fontSize: 12, fontWeight: FontWeight.w600),
+                            ],
+                          ),
+                        ),
+
+                        LayoutBuilder(builder: (context, constraints) {
+                          final screenW = MediaQuery.of(context).size.width;
+                          const outerPadding = 16.0;
+                          const crossSpacing = 8.0;
+                          const mainSpacing = 8.0;
+                          const columns = 3;
+                          const visibleRows = 2;
+
+                          final availableWidth =
+                              screenW - (outerPadding * 3) - (crossSpacing * (columns - 1));
+                          final itemWidth = (availableWidth / columns).clamp(64.0, 220.0);
+                          final avatarSize = (itemWidth * 0.67).clamp(44.0, 80.0);
+                          const textHeight = 28.0; // ارتفاع ثابت للنص
+                          const verticalSpacing = 6.0; // المسافة بين الصورة والنص
+
+                          // ارتفاع صف = الصورة + المسافة + النص + mainSpacing
+                          final rowHeight = avatarSize + verticalSpacing + textHeight + mainSpacing;
+                          // gridHeight = ارتفاع صف * عدد الصفوف المراد عرضها
+                          final gridHeight =
+                              (rowHeight * visibleRows) + mainSpacing; // safety margin
+
+                          return SizedBox(
+                            height: gridHeight,
+                            child: GridView.builder(
+                              physics: const BouncingScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(horizontal: outerPadding / 2),
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                mainAxisSpacing: mainSpacing,
+                                crossAxisSpacing: crossSpacing,
+                                childAspectRatio: itemWidth / (avatarSize + verticalSpacing + textHeight),
+                              ),
+                              itemCount: _categories.length,
+                              itemBuilder: (context, i) {
+                                final c = _categories[i];
+                                final imageUrl = (c.image.isNotEmpty)
+                                    ? c.image
+                                    : (c.imageUrl.isNotEmpty ? c.imageUrl : '');
+
+                                return InkWell(
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => CategoryItemsScreen(
+                                        user: widget.user,
+                                        categoryId: c.id,
+                                        categoryName: c.name,
                                       ),
                                     ),
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: avatarSize,
+                                        height: avatarSize,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Colors.grey[200],
+                                          boxShadow: [
+                                            BoxShadow(
+                                                color: Colors.black12,
+                                                blurRadius: 4,
+                                                offset: Offset(0, 2))
+                                          ],
+                                        ),
+                                        child: ClipOval(
+                                          child: imageUrl.isNotEmpty
+                                              ? CachedNetworkImage(
+                                            imageUrl: imageUrl,
+                                            fit: BoxFit.cover,
+                                            width: avatarSize,
+                                            height: avatarSize,
+                                            placeholder: (_, __) =>
+                                                Container(color: Colors.grey[200]),
+                                            errorWidget: (_, __, ___) => Image.asset(
+                                              'assets/aqlanassets.jpg',
+                                              fit: BoxFit.cover,
+                                            ),
+                                          )
+                                              : Image.asset('assets/aqlanassets.jpg',
+                                              fit: BoxFit.cover),
+                                        ),
+                                      ),
+                                      const SizedBox(height: verticalSpacing),
+                                      SizedBox(
+                                        height: textHeight,
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: Text(
+                                            c.name,
+                                            textAlign: TextAlign.center,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                                fontSize: 12, fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
 
-              /// ===== نهاية شبكة الفئات =====
+                  /// ===== نهاية شبكة الفئات =====
 
+                  const SizedBox(height: 24),
 
-              const SizedBox(height: 24),
+                  /// 🎁 قسم العروض المميزة
 
-              /// 🎁 قسم العروض المميزة
-
-              const Text('العروض المميزة', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kPrimaryRed)),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 220,
-                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('special_offers')
-                      .orderBy('created_at', descending: true)
-                      .limit(10)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                      return const Center(child: Text('لا توجد عروض حالياً'));
-                    }
-
-                    final docs = snapshot.data!.docs;
-
-                    return PageView.builder(
-                      controller: _pageController,
-                      itemCount: docs.length,
-                      itemBuilder: (context, index) {
-                        final offer = docs[index].data();
-
-                        final itemId = (offer['item_id'] ?? '').toString().trim();
-                        final newPrice = (offer['new_price'] ?? '').toString();
-                        final oldPrice = (offer['old_price'] ?? '').toString();
-                        final offerType = (offer['offer_type'] ?? '').toString();
-
-                        if (itemId.isEmpty) {
-                          return const SizedBox();
+                  const Text('العروض المميزة', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kPrimaryRed)),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 220,
+                    child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('special_offers')
+                          .orderBy('created_at', descending: true)
+                          .limit(10)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
                         }
 
-                        // جلب بيانات المنتج من items
-                        return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          future: FirebaseFirestore.instance
-                              .collection('items')
-                              .where('item_id', isEqualTo: itemId)
-                              .limit(1)
-                              .get(),
-                          builder: (context, itemSnap) {
-                            if (!itemSnap.hasData || itemSnap.data!.docs.isEmpty) {
+                        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                          return const Center(child: Text('لا توجد عروض حالياً'));
+                        }
+
+                        final docs = snapshot.data!.docs;
+
+                        return PageView.builder(
+                          controller: _pageController,
+                          itemCount: docs.length,
+                          itemBuilder: (context, index) {
+                            final offer = docs[index].data();
+
+                            final itemId = (offer['item_id'] ?? '').toString().trim();
+                            final newPrice = (offer['new_price'] ?? '').toString();
+                            final oldPrice = (offer['old_price'] ?? '').toString();
+                            final offerType = (offer['offer_type'] ?? '').toString();
+
+                            if (itemId.isEmpty) {
                               return const SizedBox();
                             }
 
-                            final item = itemSnap.data!.docs.first.data();
+                            // جلب بيانات المنتج من items
+                            return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              future: FirebaseFirestore.instance
+                                  .collection('items')
+                                  .where('item_id', isEqualTo: itemId)
+                                  .limit(1)
+                                  .get(),
+                              builder: (context, itemSnap) {
+                                if (!itemSnap.hasData || itemSnap.data!.docs.isEmpty) {
+                                  return const SizedBox();
+                                }
 
-                            final imageUrl = (item['image_url'] ??
-                                item['image'] ??
-                                '')
-                                .toString();
+                                final item = itemSnap.data!.docs.first.data();
 
-                            final name = (item['name'] ?? '').toString();
-                            final description =
-                            (item['description'] ?? '').toString();
+                                final imageUrl = (item['image_url'] ??
+                                    item['image'] ??
+                                    '')
+                                    .toString();
 
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    /// صورة الكارد
-                                    InkWell(
-                                      onTap: () {
-                                        final detailItem = Item(
-                                          id: itemId,
-                                          name: name,
-                                          price: newPrice,
-                                          imageUrl: imageUrl,
-                                          description: description,
-                                          categoryId: '',
-                                        );
+                                final name = (item['name'] ?? '').toString();
+                                final description =
+                                (item['description'] ?? '').toString();
 
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                ProductDetail(item: detailItem, user: widget.user),
-                                          ),
-                                        );
-                                      },
-                                      child: Image.network(
-                                        imageUrl,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (c, e, s) =>
-                                            Image.asset('assets/aqlanassets.jpg', fit: BoxFit.cover),
-                                      ),
-                                    ),
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        /// صورة الكارد
+                                        InkWell(
+                                          onTap: () {
+                                            final detailItem = Item(
+                                              id: itemId,
+                                              name: name,
+                                              price: newPrice,
+                                              imageUrl: imageUrl,
+                                              description: description,
+                                              categoryId: '',
+                                            );
 
-                                    /// تدرج غامق أسفل الصورة
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.bottomCenter,
-                                          end: Alignment.topCenter,
-                                          colors: [
-                                            Colors.black.withOpacity(0.5),
-                                            Colors.transparent,
-                                          ],
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    ProductDetail(item: detailItem, user: widget.user),
+                                              ),
+                                            );
+                                          },
+                                          child: imageUrl.isNotEmpty
+                                              ? CachedNetworkImage(
+                                            imageUrl: imageUrl,
+                                            fit: BoxFit.cover,
+                                            placeholder: (_, __) => Container(color: Colors.grey[200]),
+                                            errorWidget: (_, __, ___) => Image.asset('assets/aqlanassets.jpg', fit: BoxFit.cover),
+                                          )
+                                              : Image.asset('assets/aqlanassets.jpg', fit: BoxFit.cover),
                                         ),
-                                      ),
-                                    ),
 
-                                    /// النصوص فوق الصورة
-                                    Positioned(
-                                      bottom: 12,
-                                      right: 12,
-                                      left: 12,
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            name,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.bold,
+                                        /// تدرج غامق أسفل الصورة
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.bottomCenter,
+                                              end: Alignment.topCenter,
+                                              colors: [
+                                                Colors.black.withOpacity(0.5),
+                                                Colors.transparent,
+                                              ],
                                             ),
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            description,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Row(
+                                        ),
+
+                                        /// النصوص فوق الصورة
+                                        Positioned(
+                                          bottom: 12,
+                                          right: 12,
+                                          left: 12,
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
                                               Text(
-                                                newPrice,
+                                                name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
                                                   color: Colors.white,
-                                                  fontSize: 16,
+                                                  fontSize: 18,
                                                   fontWeight: FontWeight.bold,
                                                 ),
                                               ),
-                                              const SizedBox(width: 8),
+                                              const SizedBox(height: 4),
                                               Text(
-                                                oldPrice,
+                                                description,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
                                                   color: Colors.white70,
-                                                  decoration: TextDecoration.lineThrough,
+                                                  fontSize: 13,
                                                 ),
                                               ),
-                                              const Spacer(),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                    horizontal: 10, vertical: 4),
-                                                decoration: BoxDecoration(
-                                                    color: Colors.orange,
-                                                    borderRadius:
-                                                    BorderRadius.circular(20)),
-                                                child: Text(
-                                                  offerType,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
+                                              const SizedBox(height: 6),
+                                              Row(
+                                                children: [
+                                                  Text(
+                                                    newPrice,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
                                                   ),
-                                                ),
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    oldPrice,
+                                                    style: const TextStyle(
+                                                      color: Colors.white70,
+                                                      decoration: TextDecoration.lineThrough,
+                                                    ),
+                                                  ),
+                                                  const Spacer(),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                        horizontal: 10, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                        color: Colors.orange,
+                                                        borderRadius:
+                                                        BorderRadius.circular(20)),
+                                                    child: Text(
+                                                      offerType,
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  )
+                                                ],
                                               )
                                             ],
-                                          )
-                                        ],
-                                      ),
-                                    )
-                                  ],
-                                ),
-                              ),
+                                          ),
+                                        )
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
                             );
                           },
                         );
                       },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 24),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
 
-
-              /// 🔮 قسم الموصى بها
-              const Text('الأصناف المشابهة لطلباتك',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: kPrimaryRed)),
-              RecommendedSection(user: widget.user),
-              const SizedBox(height: 14),
-
-              /// 🕒 قسم المشتريات الأخيرة
-              const Text('تم شراؤها مؤخراً',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: kPrimaryRed)),
-              SizedBox(
-                height: 240,
-                child: _loadingRecent
-                    ? const Center(
-                    child: CircularProgressIndicator(color: kPrimaryRed))
-                    : ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _recentItems.length,
-                  separatorBuilder: (_, __) =>
-                  const SizedBox(width: 12),
-                  itemBuilder: (_, i) {
-                    final it = _recentItems[i];
-                    return InkWell(
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  ProductDetail(item: it, user: widget.user))),
-                      child: Container(
-                        width: 140,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                              color: kPrimaryRed.withOpacity(.12)),
-                          borderRadius: BorderRadius.circular(8),
-                          color: Colors.white,
-                          boxShadow: [
-                            BoxShadow(
-                                color: kPrimaryRed.withOpacity(.04),
-                                blurRadius: 3,
-                                offset: const Offset(0, 3))
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(8)),
-                              child:CachedNetworkImage(
-                                imageUrl: _fixSupabaseImageUrl(it.imageUrl),
-                                fit: BoxFit.cover,
-                                memCacheWidth: 400,
-                                placeholder: (context, url) => const Center(
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                                errorWidget: (context, url, error) => Image.asset(
-                                  'assets/aqlanassets.jpg',
-                                  fit: BoxFit.cover,
-                                ),
-                              )
-
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(it.name,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              /// ❤️ قسم المفضلة
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('المفضلة',
+                  /// 🔮 قسم الموصى بها
+                  const Text('الأصناف المشابهة لطلباتك',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: kPrimaryRed)),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => Scaffold(
-                                appBar: AppBar(
-                                    title: const Text('المفضلة')),
-                                body: FavoritesSection(user: widget.user),
-                              )));
-                    },
-                    child: const Row(
-                      children: [
-                        Text('عرض الكل', style: TextStyle(color: kPrimaryRed)),
-                        Icon(Icons.arrow_forward_ios, size: 16, color: kPrimaryRed)
-                      ],
-                    ),
-                  )
-                ],
-              ),
-              const SizedBox(height: 12),
-              _favoriteItems.isEmpty
-                  ? const SizedBox(
-                  height: 80,
-                  child: Center(child: Text('لا توجد عناصر في المفضلة')))
-                  : SizedBox(
-                height: 200,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _favoriteItems.length,
-                  separatorBuilder: (_, __) =>
-                  const SizedBox(width: 12),
-                  itemBuilder: (_, idx) {
-                    final fi = _favoriteItems[idx];
-                    return GestureDetector(
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  ProductDetail(item: fi, user: widget.user))),
-                      child: Card(
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        elevation: 2,
-                        color: Colors.white,
-                        child: SizedBox(
-                          width: 180,
-                          child: Column(
-                            crossAxisAlignment:
-                            CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child: ClipRRect(
-                                  borderRadius:
-                                  const BorderRadius.vertical(
-                                      top: Radius.circular(12)),
-                                  child: Image.network(
-                                    _fixSupabaseImageUrl(fi.imageUrl),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) =>
-                                        Image.asset('assets/aqlanassets.jpg'),
-                                  ),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(6),
-                                child: Column(
-                                  crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                                  children: [
-                                    Text(fi.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                            fontSize: 13)),
-                                    const SizedBox(height: 4),
-                                    Text('${fi.price} ريال',
-                                        style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.bold,
-                                            color: kPrimaryRed))
-                                  ],
-                                ),
-                              )
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 24),
+                  RecommendedSection(user: widget.user),
+                  const SizedBox(height: 14),
 
-              /// 🛍 قسم المنتجات (GridView)
-              const Text('المنتجات',
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: kPrimaryRed)),
-              const SizedBox(height: 12),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _items.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,          // عدد الأعمدة
-                  childAspectRatio: 0.6,      // نسبة العرض إلى الارتفاع (يمكن تعديلها حسب التصميم)
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
-                itemBuilder: (_, idx) {
-                  final it = _items[idx];
-                  return GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ProductDetail(item: it, user: widget.user),
-                      ),
-                    ),
-                    child: Card(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 4,
-                      shadowColor: kPrimaryRed.withOpacity(0.2),
-                      color: Colors.white,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          /// صورة المنتج (تتكيف مع المساحة بشكل تلقائي)
-                          Flexible(
-                            flex: 6,
-                            child: ClipRRect(
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(1)),
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: CachedNetworkImage(
+                  /// 🕒 قسم المشتريات الأخيرة
+                  const Text('تم شراؤها مؤخراً',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: kPrimaryRed)),
+                  SizedBox(
+                    height: 240,
+                    child: _loadingRecent
+                        ? const Center(
+                        child: CircularProgressIndicator(color: kPrimaryRed))
+                        : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _recentItems.length,
+                      separatorBuilder: (_, __) =>
+                      const SizedBox(width: 12),
+                      itemBuilder: (_, i) {
+                        final it = _recentItems[i];
+                        return InkWell(
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      ProductDetail(item: it, user: widget.user))),
+                          child: Container(
+                            width: 140,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                  color: kPrimaryRed.withOpacity(.12)),
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.white,
+                              boxShadow: [
+                                BoxShadow(
+                                    color: kPrimaryRed.withOpacity(.04),
+                                    blurRadius: 3,
+                                    offset: const Offset(0, 3))
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ClipRRect(
+                                    borderRadius: const BorderRadius.vertical(
+                                        top: Radius.circular(8)),
+                                    child:CachedNetworkImage(
                                       imageUrl: _fixSupabaseImageUrl(it.imageUrl),
                                       fit: BoxFit.cover,
                                       memCacheWidth: 400,
@@ -957,115 +879,330 @@ class _HomeScreenState extends State<HomeScreen>
                                         fit: BoxFit.cover,
                                       ),
                                     )
-
-                                  ),
-                                  if (it.isSoldOut)
-                                    Positioned(
-                                      left: 8,
-                                      top: 8,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red,
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: const Text(
-                                          'نفدت الكمية !',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-
-                                  // ----- هنا أضفنا زر القلب للمفضلة -----
-                                  Positioned(
-                                    top: 8,
-                                    right: 8,
-                                    child: Material(
-                                      color: Colors.white.withOpacity(0.95),
-                                      shape: const CircleBorder(),
-                                      elevation: 2,
-                                      child: InkWell(
-                                        onTap: () async {
-                                          // منع تنشيط التبديل عند وجود عملية جارية على نفس العنصر
-                                          if (_togglingFavoriteIds.contains(it.id)) return;
-                                          await _toggleFavorite(it);
-                                        },
-                                        customBorder: const CircleBorder(),
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(8),
-                                          child: _togglingFavoriteIds.contains(it.id)
-                                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                              : Icon(
-                                            _isFavorite(it) ? Icons.favorite : Icons.favorite_border,
-                                            color: _isFavorite(it) ? Colors.red : Colors.black54,
-                                            size: 20,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  // ----- نهاية زر القلب -----
-                                ],
-                              ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Text(it.name,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold)),
+                                ),
+                              ],
                             ),
                           ),
-
-                          /// معلومات المنتج + زر السلة
-                          Flexible(
-                            flex: 4,
-                            child: Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    it.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${it.price} ريال',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: kPrimaryRed,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: kPrimaryRed,
-                                      minimumSize: const Size.fromHeight(36),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    onPressed: () => _addItemToCartFirestore(it),
-                                    icon: const Icon(Icons.add_shopping_cart,
-                                        size: 16, color: Colors.white),
-                                    label: const Text("أضف للسلة",
-                                        style: TextStyle(color: Colors.white)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
-                  );
-                },
-              )
-            ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  /// ❤️ قسم المفضلة
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('المفضلة',
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: kPrimaryRed)),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => Scaffold(
+                                    appBar: AppBar(
+                                        title: const Text('المفضلة')),
+                                    body: FavoritesSection(user: widget.user),
+                                  )));
+                        },
+                        child: const Row(
+                          children: [
+                            Text('عرض الكل', style: TextStyle(color: kPrimaryRed)),
+                            Icon(Icons.arrow_forward_ios, size: 16, color: kPrimaryRed)
+                          ],
+                        ),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _favoriteItems.isEmpty
+                      ? const SizedBox(
+                      height: 80,
+                      child: Center(child: Text('لا توجد عناصر في المفضلة')))
+                      : SizedBox(
+                    height: 200,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _favoriteItems.length,
+                      separatorBuilder: (_, __) =>
+                      const SizedBox(width: 12),
+                      itemBuilder: (_, idx) {
+                        final fi = _favoriteItems[idx];
+                        return GestureDetector(
+                          onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                      ProductDetail(item: fi, user: widget.user))),
+                          child: Card(
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 2,
+                            color: Colors.white,
+                            child: SizedBox(
+                              width: 180,
+                              child: Column(
+                                crossAxisAlignment:
+                                CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(
+                                    child: ClipRRect(
+                                      borderRadius:
+                                      const BorderRadius.vertical(
+                                          top: Radius.circular(12)),
+                                      child: Image.network(
+                                        _fixSupabaseImageUrl(fi.imageUrl),
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) =>
+                                            Image.asset('assets/aqlanassets.jpg'),
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.all(6),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                      children: [
+                                        Text(fi.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                                fontSize: 13)),
+                                        const SizedBox(height: 4),
+                                        Text('${fi.price} ريال',
+                                            style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                                color: kPrimaryRed))
+                                      ],
+                                    ),
+                                  )
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  /// 🛍 قسم المنتجات (GridView)
+                  const Text('المنتجات',
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: kPrimaryRed)),
+                  const SizedBox(height: 12),
+
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _items.length,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,          // عدد الأعمدة
+                      childAspectRatio: 0.6,      // نسبة العرض إلى الارتفاع (يمكن تعديلها حسب التصميم)
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemBuilder: (_, idx) {
+                      final it = _items[idx];
+                      return GestureDetector(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ProductDetail(item: it, user: widget.user),
+                          ),
+                        ),
+                        child: Card(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 4,
+                          shadowColor: kPrimaryRed.withOpacity(0.2),
+                          color: Colors.white,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              /// صورة المنتج (تتكيف مع المساحة بشكل تلقائي)
+                              Flexible(
+                                flex: 6,
+                                child: ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(1)),
+                                  child: Stack(
+                                    children: [
+                                      Positioned.fill(
+                                          child: CachedNetworkImage(
+                                            imageUrl: _fixSupabaseImageUrl(it.imageUrl),
+                                            fit: BoxFit.cover,
+                                            memCacheWidth: 400,
+                                            placeholder: (context, url) => const Center(
+                                              child: CircularProgressIndicator(strokeWidth: 2),
+                                            ),
+                                            errorWidget: (context, url, error) => Image.asset(
+                                              'assets/aqlanassets.jpg',
+                                              fit: BoxFit.cover,
+                                            ),
+                                          )
+
+                                      ),
+                                      if (it.isSoldOut)
+                                        Positioned(
+                                          left: 8,
+                                          top: 8,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red,
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: const Text(
+                                              'نفدت الكمية !',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+
+                                      // ----- هنا أضفنا زر القلب للمفضلة -----
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: Material(
+                                          color: Colors.white.withOpacity(0.95),
+                                          shape: const CircleBorder(),
+                                          elevation: 2,
+                                          child: InkWell(
+                                            onTap: () async {
+                                              // منع تنشيط التبديل عند وجود عملية جارية على نفس العنصر
+                                              if (_togglingFavoriteIds.contains(it.id)) return;
+                                              await _toggleFavorite(it);
+                                            },
+                                            customBorder: const CircleBorder(),
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(8),
+                                              child: _togglingFavoriteIds.contains(it.id)
+                                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                                  : Icon(
+                                                _isFavorite(it) ? Icons.favorite : Icons.favorite_border,
+                                                color: _isFavorite(it) ? Colors.red : Colors.black54,
+                                                size: 20,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      // ----- نهاية زر القلب -----
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              /// معلومات المنتج + زر السلة
+                              Flexible(
+                                flex: 4,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        it.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${it.price} ريال',
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: kPrimaryRed,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: kPrimaryRed,
+                                          minimumSize: const Size.fromHeight(36),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                        onPressed: () => _addItemToCartFirestore(it),
+                                        icon: const Icon(Icons.add_shopping_cart,
+                                            size: 16, color: Colors.white),
+                                        label: const Text("أضف للسلة",
+                                            style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                  // loading more indicator
+                  if (_isLoadingMore)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
-      ),
+
+        // الإنترنت overlay (مربع في منتصف الشاشة، بدون أزرار)
+        if (!_hasInternet)
+          Container(
+            color: Colors.black45,
+            alignment: Alignment.center,
+            child: Container(
+              width: 260,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10)],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.wifi_off, size: 48, color: kPrimaryRed),
+                  SizedBox(height: 12),
+                  Text(
+                    'لا يوجد اتصال بالإنترنت',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 6),
+                  Text('الرجاء التحقق من الشبكة'),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
