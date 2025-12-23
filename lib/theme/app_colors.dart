@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   static const Color primaryRed = Color(0xFFE53935);
@@ -18,9 +17,23 @@ class AppTheme {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      textTheme: GoogleFonts.cairoTextTheme().copyWith(
-        bodyLarge: const TextStyle(color: textDark),
-        bodyMedium: const TextStyle(color: textMedium),
+      textTheme: const TextTheme(
+        bodyLarge: TextStyle(
+          fontFamily: 'Cairo',
+          color: textDark,
+        ),
+        bodyMedium: TextStyle(
+          fontFamily: 'Cairo',
+          color: textMedium,
+        ),
+        titleLarge: TextStyle(
+          fontFamily: 'Cairo',
+          color: textDark,
+        ),
+        labelLarge: TextStyle(
+          fontFamily: 'Cairo',
+          color: textDark,
+        ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -30,6 +43,10 @@ class AppTheme {
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+          textStyle: const TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 16,
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -39,6 +56,14 @@ class AppTheme {
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
+        ),
+        hintStyle: const TextStyle(
+          fontFamily: 'Cairo',
+          color: textMedium,
+        ),
+        labelStyle: const TextStyle(
+          fontFamily: 'Cairo',
+          color: textDark,
         ),
       ),
     );

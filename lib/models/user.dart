@@ -15,60 +15,70 @@ class User {
     required this.balance,
   });
 
-  /// محاولات للحصول على قيمة id من أماكن مختلفة داخل الـ JSON
+  /// استخراج ID بشكل آمن من أي مصدر
   static int _extractId(Map<String, dynamic> json) {
-    // حالات شائعة: 'customer_id', 'id', 'user_id'
-    final possible = <String>['customer_id', 'id', 'user_id', 'userId'];
+    final possibleKeys = ['customer_id', 'id', 'user_id', 'userId'];
 
-    for (final key in possible) {
-      if (json.containsKey(key)) {
-        final v = json[key];
-        if (v is int) return v;
-        if (v is String) {
-          final parsed = int.tryParse(v);
-          if (parsed != null) return parsed;
-        }
+    for (final key in possibleKeys) {
+      final value = json[key];
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      if (value is String) {
+        final parsed = int.tryParse(value);
+        if (parsed != null) return parsed;
       }
     }
 
-    // لو كان الكائن داخل 'data' أو 'customer'
     if (json['data'] is Map) {
-      final nested = Map<String, dynamic>.from(json['data']);
-      final r = _extractId(nested);
-      if (r > 0) return r;
+      return _extractId(Map<String, dynamic>.from(json['data']));
     }
+
     if (json['customer'] is Map) {
-      final nested = Map<String, dynamic>.from(json['customer']);
-      final r = _extractId(nested);
-      if (r > 0) return r;
+      return _extractId(Map<String, dynamic>.from(json['customer']));
     }
 
     return 0;
   }
 
+  /// استخدام عام (API / Session / أي مصدر)
   factory User.fromJson(Map<String, dynamic> json) {
-    final id = _extractId(json);
-    // إذا الاستجابة كاملة ضمن مفتاح 'data' أو 'customer'، استخدم تلك الخريطة إذا متاحة
-    Map<String, dynamic> source = json;
-    if (json['data'] is Map) {
-      source = Map<String, dynamic>.from(json['data']);
-    } else if (json['customer'] is Map) {
-      source = Map<String, dynamic>.from(json['customer']);
-    }
+    final source = (json['data'] is Map)
+        ? Map<String, dynamic>.from(json['data'])
+        : (json['customer'] is Map)
+        ? Map<String, dynamic>.from(json['customer'])
+        : json;
 
     return User(
-      id: id,
+      id: _extractId(json),
       name: source['name']?.toString() ?? '',
       phone: source['phone']?.toString() ?? '',
       email: source['email']?.toString() ?? '',
       profileImage: source['profile_image']?.toString() ?? '',
-      balance: double.tryParse(source['balance']?.toString() ?? '0') ?? 0.0,
+      balance: (source['balance'] is num)
+          ? (source['balance'] as num).toDouble()
+          : double.tryParse(source['balance']?.toString() ?? '0') ?? 0.0,
+    );
+  }
+
+  /// 🔥 خاص بـ Firestore (مهم جدًا للويب و iOS)
+  factory User.fromFirestore(Map<String, dynamic> data) {
+    return User(
+      id: (data['customer_id'] is num)
+          ? (data['customer_id'] as num).toInt()
+          : int.tryParse(data['customer_id']?.toString() ?? '0') ?? 0,
+      name: data['name']?.toString() ?? '',
+      phone: data['phone']?.toString() ?? '',
+      email: data['email']?.toString() ?? '',
+      profileImage: data['profile_image']?.toString() ?? '',
+      balance: (data['balance'] is num)
+          ? (data['balance'] as num).toDouble()
+          : double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
+      'customer_id': id,
       'name': name,
       'phone': phone,
       'email': email,

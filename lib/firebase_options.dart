@@ -44,40 +44,40 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyA7YhKv01rUeFM-JNR8FT1b5vCOX9-2pZY',
-    appId: '1:744830730656:web:e1b169760ad8181e37e4c5',
-    messagingSenderId: '744830730656',
-    projectId: 'aqlan-spices-shop',
-    authDomain: 'aqlan-spices-shop.firebaseapp.com',
-    storageBucket: 'aqlan-spices-shop.firebasestorage.app',
-    measurementId: 'G-X07HQCHXS4',
+    apiKey: 'AIzaSyDIDyuVXQfhzXi82zD7mS1VYoW_4cR4DeE',
+    appId: '1:348781799507:web:70f2100ee721a5876efea6',
+    messagingSenderId: '348781799507',
+    projectId: 'aqlan-spices',
+    authDomain: 'aqlan-spices.firebaseapp.com',
+    storageBucket: 'aqlan-spices.firebasestorage.app',
+    measurementId: 'G-QBTZY0TSR7',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyC30oqrTr4YwMwu46yhPM1TnfA4C45IyeA',
-    appId: '1:744830730656:android:212c344d922a0e2937e4c5',
-    messagingSenderId: '744830730656',
-    projectId: 'aqlan-spices-shop',
-    storageBucket: 'aqlan-spices-shop.firebasestorage.app',
+    apiKey: 'AIzaSyD97dXbeavWuG-ANmA-YxYjGBcEuVTG9Vg',
+    appId: '1:348781799507:android:eeefc31a1893077c6efea6',
+    messagingSenderId: '348781799507',
+    projectId: 'aqlan-spices',
+    storageBucket: 'aqlan-spices.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBrTRtlMKbwxbRsQGrIXknWnf3g0U9qlgw',
-    appId: '1:744830730656:ios:7db07d7cc2e4914437e4c5',
-    messagingSenderId: '744830730656',
-    projectId: 'aqlan-spices-shop',
-    storageBucket: 'aqlan-spices-shop.firebasestorage.app',
+    apiKey: 'AIzaSyDhicGRpGou0JLj0AWYxbV7olz56VkAQYQ',
+    appId: '1:348781799507:ios:d853dd3617e9bbba6efea6',
+    messagingSenderId: '348781799507',
+    projectId: 'aqlan-spices',
+    storageBucket: 'aqlan-spices.firebasestorage.app',
     iosBundleId: 'com.example.aqlanstore',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyA7YhKv01rUeFM-JNR8FT1b5vCOX9-2pZY',
-    appId: '1:744830730656:web:a657c5ce8454e70137e4c5',
-    messagingSenderId: '744830730656',
-    projectId: 'aqlan-spices-shop',
-    authDomain: 'aqlan-spices-shop.firebaseapp.com',
-    storageBucket: 'aqlan-spices-shop.firebasestorage.app',
-    measurementId: 'G-Q7LTFHZ6R9',
+    apiKey: 'AIzaSyDIDyuVXQfhzXi82zD7mS1VYoW_4cR4DeE',
+    appId: '1:348781799507:web:da7dfb1373e51a166efea6',
+    messagingSenderId: '348781799507',
+    projectId: 'aqlan-spices',
+    authDomain: 'aqlan-spices.firebaseapp.com',
+    storageBucket: 'aqlan-spices.firebasestorage.app',
+    measurementId: 'G-W9TXZXX22W',
   );
 
 }

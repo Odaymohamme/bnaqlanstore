@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "aqlan-spices"
-  }
+  },
+  "targets": {
+    "aqlan-spices": {
+      "hosting": {
+        "aqlan-shop": [
+          "aqlan-shop"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

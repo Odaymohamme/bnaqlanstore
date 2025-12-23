@@ -12,10 +12,10 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  // ======= ضع بيانات Supabase هنا أو استبدلها بمتغيرات بيئية =======
+  // ======= بيانات Supabase =======
   static const String SUPABASE_PROJECT_URL = "https://nrjwzdkhwcqokwlmkzem.supabase.co";
   static const String SUPABASE_SERVICE_ROLE_KEY = "YOUR_SUPABASE_SERVICE_ROLE_KEY";
-  static const String SUPABASE_PROFILES_BUCKET = "profiles"; // تأكد من وجوده
+  static const String SUPABASE_PROFILES_BUCKET = "profiles";
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameCtrl = TextEditingController();
@@ -24,6 +24,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _passCtrl = TextEditingController();
   final TextEditingController _confirmCtrl = TextEditingController();
   final ImagePicker _picker = ImagePicker();
+
   File? _pickedImage;
   bool _loading = false;
   bool _obscure = true;
@@ -40,11 +41,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _pickImage() async {
     try {
-      final XFile? f = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-      if (f != null) setState(() => _pickedImage = File(f.path));
-    } catch (e) {
-      // ignore
-    }
+      final XFile? f = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+      if (f != null) {
+        setState(() => _pickedImage = File(f.path));
+      }
+    } catch (_) {}
   }
 
   String _generateOtp() {
@@ -71,7 +75,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (resp.statusCode == 200 || resp.statusCode == 201) {
       return "$SUPABASE_PROJECT_URL/storage/v1/object/public/$SUPABASE_PROFILES_BUCKET/$destFilename";
     } else {
-      debugPrint("Supabase upload failed: ${resp.statusCode} ${resp.body}");
       throw Exception("فشل رفع الصورة");
     }
   }
@@ -94,22 +97,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
         profileImageUrl = await _uploadProfileImageToSupabase(_pickedImage!, filename);
       }
 
-      // مهم: Firestore document id هو نصي عشوائي وليس رقم.
-      // لذلك نضيف حقل رقمي فريد customer_id لكي يمكن قراءته كنقطة مرجعية في الـ frontend.
-      final customerId = DateTime.now().millisecondsSinceEpoch; // رقم فريد يعتمد على الوقت
-
+      final customerId = DateTime.now().millisecondsSinceEpoch;
       final docRef = FirebaseFirestore.instance.collection('customers').doc();
+
       final otp = _generateOtp();
       final otpExpiresAt = DateTime.now().add(const Duration(minutes: 10));
 
       final data = {
-        // نضيف customer_id كحقل رقمي لكي يقبله الموديل في الـ frontend
         "customer_id": customerId,
         "name": name,
         "phone": phone,
         "email": email,
-        "password": pass, // ملاحظة: كلمة المرور مخزنة كنص واضح، غير آمنة في الإنتاج
+        "password": pass,
         "profile_image": profileImageUrl,
+
+        // ✅ الإضافة المطلوبة
+        "balance": "0",
+
         "registration_date": FieldValue.serverTimestamp(),
         "is_verified": false,
         "otp_code": otp,
@@ -117,40 +121,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
         "level": "customer",
       };
 
-      // نحفظ الوثيقة
       await docRef.set(data);
-
-      // نحدّث نفس الوثيقة لحفظ معرف المستند أيضاً لو احتجنا
       await docRef.update({"doc_id": docRef.id});
-
-      debugPrint('Registered customer docId=${docRef.id}, customer_id=$customerId');
 
       if (!mounted) return;
       await showDialog(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('تم التسجيل'),
-          content: const Text('تم إنشاء الحساب بنجاح.يمكنك الآن تسجيل الدخول.'),
+          content: const Text('تم إنشاء الحساب بنجاح. يمكنك الآن تسجيل الدخول.'),
           actions: [
-          TextButton(
-          onPressed: () {
-        Navigator.of(context).pop();
-        Navigator.of(context).pop(); // العودة لواجهة تسجيل الدخول
-        },
-          child: const Text('حسناً'),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pop();
+              },
+              child: const Text('حسناً'),
+            ),
+          ],
         ),
-        ],
-      ),
-    );
+      );
     } catch (e) {
-    debugPrint("register error: $e");
-    if (mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('فشل التسجيل: ${e.toString()}')),
-    );
-    }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('فشل التسجيل: ${e.toString()}')),
+        );
+      }
     } finally {
-    if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -178,7 +176,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             key: _formKey,
             child: Column(
               children: [
-                const SizedBox(height: 8),
                 GestureDetector(
                   onTap: _pickImage,
                   child: CircleAvatar(
@@ -186,20 +183,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     backgroundColor: Colors.grey.shade200,
                     backgroundImage: _pickedImage != null ? FileImage(_pickedImage!) : null,
                     child: _pickedImage == null
-                        ? const Icon(Icons.camera_alt_outlined, size: 30, color: Colors.black54)
+                        ? const Icon(Icons.camera_alt_outlined, size: 30)
                         : null,
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _nameCtrl,
-                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'الاسم الكامل',
                     prefixIcon: Icon(Icons.person),
                     border: OutlineInputBorder(),
                   ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'أدخل الاسم' : null,
+                  validator: (v) => v == null || v.trim().isEmpty ? 'أدخل الاسم' : null,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -215,7 +211,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
                     labelText: 'البريد الإلكتروني (اختياري)',
                     prefixIcon: Icon(Icons.email),
@@ -259,18 +254,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: ElevatedButton(
                     onPressed: _loading ? null : _register,
                     child: _loading
-                        ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                    )
+                        ? const CircularProgressIndicator(color: Colors.white)
                         : const Text('إنشاء حساب'),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('لديك حساب بالفعل؟ تسجيل الدخول'),
                 ),
               ],
             ),

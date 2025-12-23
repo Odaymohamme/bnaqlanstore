@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user.dart';
 import '../utils/session_manager.dart';
 import '../widgets/custom_text_field.dart';
-import 'register_screen.dart';
-import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -16,6 +14,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _phoneCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+
   bool _loading = false;
   bool _obscure = true;
 
@@ -26,77 +25,98 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void logError(String title, Object error, StackTrace stack) {
+    // مهم جدًا لـ iOS Web
+    print('🔴 $title');
+    print(error);
+    print(stack);
+  }
+
+  void _showError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.red.shade400,
+      ),
+    );
+  }
+
   Future<void> _login() async {
     final phone = _phoneCtrl.text.trim();
     final pass = _passCtrl.text;
 
     if (phone.isEmpty || pass.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('الرجاء ملء رقم الهاتف وكلمة المرور'), backgroundColor: Colors.red.shade400),
-      );
+      _showError('الرجاء إدخال رقم الهاتف وكلمة المرور');
       return;
     }
 
-    setState(() {
-      _loading = true;
-    });
+    setState(() => _loading = true);
 
     try {
-      final User user = await ApiService.loginClient(phone, pass);
+      print('LOGIN START');
 
-      // طباعة استجابة السيرفر للمساعدة في التصحيح
-      try {
-        print('login response user: ${user.toJson()}');
-      } catch (_) {}
+      final snapshot = await FirebaseFirestore.instance
+          .collection('customers')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get();
 
-      // تحقق من أن الـ id صالح
-      if (user.id <= 0) {
-        throw Exception('استجابة غير صالحة من السيرفر: معرف المستخدم غير موجود');
+      if (snapshot.docs.isEmpty) {
+        throw Exception('رقم الهاتف غير مسجل');
       }
 
-      // انتظر الحفظ وتحقق منه
+      final doc = snapshot.docs.first;
+
+      if (doc['password']?.toString() != pass) {
+        throw Exception('كلمة المرور غير صحيحة');
+      }
+
+      final rawData = doc.data();
+      if (rawData == null) {
+        throw Exception('بيانات المستخدم غير موجودة');
+      }
+
+      final Map<String, dynamic> data =
+      Map<String, dynamic>.from(rawData as Map);
+
+      final user = User.fromJson({
+        'customer_id': data['customer_id']?.toString() ?? '',
+        'name': data['name']?.toString() ?? '',
+        'phone': data['phone']?.toString() ?? '',
+        'email': data['email']?.toString() ?? '',
+        'profile_image': data['profile_image']?.toString() ?? '',
+        'balance': double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0,
+      });
+
       await SessionManager.saveUser(user);
-      final savedId = await SessionManager.getUserId();
-      print('Saved user id: $savedId');
-      if (savedId <= 0) {
-        throw Exception('فشل حفظ بيانات الجلسة.');
-      }
 
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => HomeScreen(user: user)),
-      );
-    } catch (e) {
-      final msg = e.toString().replaceFirst('Exception: ', '');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: Colors.red.shade400),
-        );
-      }
+
+      print('LOGIN SUCCESS → GO HOME');
+
+      // ✅ الحل الحاسم لمشكلة iOS Web
+      Navigator.of(context).pushReplacementNamed('/home');
+    } catch (e, stack) {
+      logError('LOGIN ERRO101R', e, stack);
+      _showError(e.toString().replaceFirst('Exception102: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _guestLogin() async {
-    final guestUser = User(
-      id: 0,
-      name: 'زائر',
-      phone: '',
-      email: '',
-      profileImage: '',
-      balance: 0,
-    );
+  void _guestLogin() {
+    try {
+      print('GUEST LOGIN');
+      print(ModalRoute.of(context));
 
-    // لا نحفظ الزائر تلقائياً. إذا أردت حفظه كجلسة، يمكنك فك السطر التالي
-    // await SessionManager.saveUser(guestUser);
 
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => HomeScreen(user: guestUser)),
-    );
+      // لا نمرر أي object
+      Navigator.of(context).pushReplacementNamed('/home');
+    } catch (e, stack) {
+      logError('GUEST LOGIN ERROR', e, stack);
+      _showError('116خطأ أثناء الدخول كزائر');
+    }
   }
 
   @override
@@ -132,7 +152,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 32),
 
-                    // حقل رقم الهاتف
                     CustomTextField(
                       controller: _phoneCtrl,
                       label: 'رقم الهاتف',
@@ -141,7 +160,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                     const SizedBox(height: 12),
 
-                    // حقل كلمة المرور
                     TextFormField(
                       controller: _passCtrl,
                       obscureText: _obscure,
@@ -152,13 +170,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         prefixIcon: const Icon(Icons.lock),
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
-                          icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                          onPressed: () => setState(() => _obscure = !_obscure),
+                          icon: Icon(
+                            _obscure
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscure = !_obscure),
                         ),
                       ),
                     ),
 
                     const SizedBox(height: 24),
+
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFC68642),
@@ -177,16 +201,20 @@ class _LoginScreenState extends State<LoginScreen> {
                           strokeWidth: 2.5,
                         ),
                       )
-                          : const Text('دخول', style: TextStyle(fontSize: 16)),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                          : const Text(
+                        'دخول',
+                        style: TextStyle(fontSize: 16),
                       ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    TextButton(
+                      onPressed: () =>
+                          Navigator.of(context).pushNamed('/register'),
                       child: const Text('إنشاء حساب جديد'),
                     ),
+
                     TextButton(
                       onPressed: _guestLogin,
                       child: const Text('الدخول كزائر'),

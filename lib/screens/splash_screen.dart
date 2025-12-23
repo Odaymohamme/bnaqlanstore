@@ -20,17 +20,22 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkSession() async {
-    await Future.delayed(const Duration(seconds: 2)); // شاشة انتظار بسيطة
-    final user = await SessionManager.getUser();
+    // شاشة انتظار قصيرة لعرض الشعار
+    await Future.delayed(const Duration(seconds: 2));
+
+    // استرجاع المستخدم من الجلسة
+    final User? user = await SessionManager.getUser();
 
     if (!mounted) return;
 
-    if (user != null) {
+    // إذا كان هناك مستخدم، اذهب مباشرة إلى HomeScreen
+    if (user != null && user.id > 0) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => HomeScreen(user: user)),
       );
     } else {
+      // إذا لم يوجد مستخدم، افتح شاشة تسجيل الدخول
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -41,9 +46,9 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-        body: Center(
-            child: CircularProgressIndicator(), // شكل مؤقت للانتظار
-            ),
-        );
-    }
+      body: Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
 }

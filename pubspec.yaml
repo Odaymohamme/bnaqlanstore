@@ -47,6 +47,8 @@ dependencies:
   google_fonts:
   connectivity_plus:
   intl:
+  firebase_auth :
+  flutter_launcher_icons:
 
 
 
@@ -62,8 +64,16 @@ dependencies:
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
+
   flutter_test:
     sdk: flutter
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/images/log.png
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/images/log.png
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -90,6 +100,17 @@ flutter:
     - assets/images/whatsapp.png
     - .env
     - assets/fonts/
+    - assets/images/log.png
+
+
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+        - asset: assets/fonts/Cairo-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 700
 
 
 
