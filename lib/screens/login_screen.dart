@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fbAuth;
 import '../models/user.dart';
 import '../utils/session_manager.dart';
 import '../widgets/custom_text_field.dart';
+import 'register_screen.dart';
+import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -14,7 +17,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _phoneCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
-
   bool _loading = false;
   bool _obscure = true;
 
@@ -25,38 +27,22 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void logError(String title, Object error, StackTrace stack) {
-    // مهم جدًا لـ iOS Web
-    print('🔴 $title');
-    print(error);
-    print(stack);
-  }
-
-  void _showError(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: Colors.red.shade400,
-      ),
-    );
-  }
-
   Future<void> _login() async {
     final phone = _phoneCtrl.text.trim();
     final pass = _passCtrl.text;
 
     if (phone.isEmpty || pass.isEmpty) {
-      _showError('الرجاء إدخال رقم الهاتف وكلمة المرور');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('الرجاء ملء رقم الهاتف وكلمة المرور'), backgroundColor: Colors.red.shade400),
+      );
       return;
     }
 
     setState(() => _loading = true);
 
     try {
-      print('LOGIN START');
-
-      final snapshot = await FirebaseFirestore.instance
+      // البحث عن المستخدم في Firestore
+      final QuerySnapshot snapshot = await FirebaseFirestore.instance
           .collection('customers')
           .where('phone', isEqualTo: phone)
           .limit(1)
@@ -68,17 +54,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final doc = snapshot.docs.first;
 
-      if (doc['password']?.toString() != pass) {
-        throw Exception('كلمة المرور غير صحيحة');
+      // تحقق من كلمة المرور
+      if (doc['password'] != pass) {
+        throw Exception('كلمة المرور خاطئة');
       }
 
-      final rawData = doc.data();
-      if (rawData == null) {
-        throw Exception('بيانات المستخدم غير موجودة');
-      }
-
+      // إنشاء User من بيانات Firestore
       final Map<String, dynamic> data =
-      Map<String, dynamic>.from(rawData as Map);
+      Map<String, dynamic>.from(doc.data() as Map);
+
 
       final user = User.fromJson({
         'customer_id': data['customer_id']?.toString() ?? '',
@@ -86,37 +70,46 @@ class _LoginScreenState extends State<LoginScreen> {
         'phone': data['phone']?.toString() ?? '',
         'email': data['email']?.toString() ?? '',
         'profile_image': data['profile_image']?.toString() ?? '',
-        'balance': double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0,
+        'balance': (data['balance'] is num)
+            ? (data['balance'] as num).toDouble()
+            : 0.0,
       });
 
+      // حفظ المستخدم في الجلسة
       await SessionManager.saveUser(user);
 
       if (!mounted) return;
-
-      print('LOGIN SUCCESS → GO HOME');
-
-      // ✅ الحل الحاسم لمشكلة iOS Web
-      Navigator.of(context).pushReplacementNamed('/home');
-    } catch (e, stack) {
-      logError('LOGIN ERRO101R', e, stack);
-      _showError(e.toString().replaceFirst('Exception102: ', ''));
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => HomeScreen(user: user)),
+      );
+    } catch (e) {
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red.shade400),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _guestLogin() {
-    try {
-      print('GUEST LOGIN');
-      print(ModalRoute.of(context));
 
+  void _guestLogin() async {
+    final guestUser = User(
+      id: 0,
+      name: 'زائر',
+      phone: '',
+      email: '',
+      profileImage: '',
+      balance: 0,
+    );
 
-      // لا نمرر أي object
-      Navigator.of(context).pushReplacementNamed('/home');
-    } catch (e, stack) {
-      logError('GUEST LOGIN ERROR', e, stack);
-      _showError('116خطأ أثناء الدخول كزائر');
-    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => HomeScreen(user: guestUser)),
+    );
   }
 
   @override
@@ -151,15 +144,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 32),
-
                     CustomTextField(
                       controller: _phoneCtrl,
                       label: 'رقم الهاتف',
                       keyboardType: TextInputType.phone,
                     ),
-
                     const SizedBox(height: 12),
-
                     TextFormField(
                       controller: _passCtrl,
                       obscureText: _obscure,
@@ -170,19 +160,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         prefixIcon: const Icon(Icons.lock),
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscure
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
-                          onPressed: () =>
-                              setState(() => _obscure = !_obscure),
+                          icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 24),
-
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFC68642),
@@ -201,20 +184,16 @@ class _LoginScreenState extends State<LoginScreen> {
                           strokeWidth: 2.5,
                         ),
                       )
-                          : const Text(
-                        'دخول',
-                        style: TextStyle(fontSize: 16),
-                      ),
+                          : const Text('دخول', style: TextStyle(fontSize: 16)),
                     ),
-
                     const SizedBox(height: 12),
-
                     TextButton(
-                      onPressed: () =>
-                          Navigator.of(context).pushNamed('/register'),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                      ),
                       child: const Text('إنشاء حساب جديد'),
                     ),
-
                     TextButton(
                       onPressed: _guestLogin,
                       child: const Text('الدخول كزائر'),

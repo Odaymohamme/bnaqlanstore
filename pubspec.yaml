@@ -49,6 +49,7 @@ dependencies:
   intl:
   firebase_auth :
   flutter_launcher_icons:
+  firebase_messaging:
 
 
 

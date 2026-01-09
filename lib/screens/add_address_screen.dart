@@ -58,13 +58,13 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
     );
     setState(() => _submitting = false);
     if (ok) {
-      _labelCtrl.clear();
-      _addressCtrl.clear();
-      _mapLinkCtrl.clear();
-      await _loadAddresses(); // تحديث القائمة مباشرة
+      // إما نحدث القائمة هنا أو نرجع true للمستدعي لكي يقوم بإعادة التحميل
+      // نرجع true ليقوم ConfirmOrderScreen بإعادة تحميل العناوين واختيار العنوان الجديد
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✅ تم إضافة العنوان بنجاح')),
       );
+      Navigator.pop(context, true);
+      return;
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('❌ فشل إضافة العنوان')),
@@ -124,12 +124,11 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
                         leading: const Icon(Icons.location_on, color: Colors.blue),
                         title: Text(addr.label),
                         subtitle: Text(addr.address),
-                        trailing: addr.mapLink != null && addr.mapLink!.isNotEmpty
+                        trailing: addr.mapLink.isNotEmpty
                             ? IconButton(
                           icon: const Icon(Icons.map, color: Colors.green),
                           onPressed: () {
-                            // تفتح الرابط في المتصفح
-                            // يمكن استخدام url_launcher هنا
+                            // فتح رابط الخريطة إن رغبت (url_launcher)
                           },
                         )
                             : null,
@@ -138,8 +137,6 @@ class _AddAddressScreenState extends State<AddAddressScreen> {
                   },
                 ),
               ),
-            ]),
-            ),
-        );
-    }
+            ])));
+  }
 }

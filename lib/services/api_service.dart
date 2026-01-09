@@ -448,7 +448,6 @@ class ApiService {
       return [];
     }
   }
-
   static Future<bool> confirmOrder({
     required int customerId,
     required String address,
@@ -469,30 +468,29 @@ class ApiService {
       // ----------------------------------------------------------
       String proofUrl = "";
 
-      if (paymentMethod == "بطاقة" && proofImage != null) {
-        final fileName = "$orderId-${DateTime.now().millisecondsSinceEpoch}.jpg";
+      if (paymentMethod != "نقداً" && proofImage != null) {
+        try {
+          final fileName = "$orderId-${DateTime.now().millisecondsSinceEpoch}.jpg";
+          final bucket = 'payment_proofs';
+          final path = fileName;
 
-        final supabasePublicUrl =
-            "https://nrjwzdkhwcqokwlmkzem.supabase.co/storage/v1/object/public/payment_proofs/$fileName";
+          // استخدم Supabase client لرفع الملف
+          final storage = Supabase.instance.client.storage;
+          try {
+            // محاولة رفع الملف كـ File
+            await storage.from(bucket).upload(path, proofImage);
+          } catch (_) {
+            // fallback: ارفع بواسطة bytes
+            final bytes = await proofImage.readAsBytes();
+            await storage.from(bucket).upload(path, bytes as File);
+          }
 
-        final uploadUrl = Uri.parse(
-            "https://nrjwzdkhwcqokwlmkzem.supabase.co/storage/v1/object/payment_proofs/$fileName");
-
-        final bytes = await proofImage.readAsBytes();
-
-        final resp = await http.post(
-          uploadUrl,
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "Authorization": "Bearer YOUR_SUPABASE_SERVICE_ROLE_KEY",
-          },
-          body: bytes,
-        );
-
-        if (resp.statusCode == 200 || resp.statusCode == 201) {
-          proofUrl = supabasePublicUrl;
-        } else {
-          debugPrint("❌ Upload to Supabase failed: ${resp.statusCode} ${resp.body}");
+          // بناء رابط public يعتمد على Supabase
+          proofUrl = '${Constants.supabaseUrl}/storage/v1/object/public/$bucket/$path';
+        } catch (e, st) {
+          debugPrint('Supabase upload failed: $e');
+          debugPrint('$st');
+          // نكمل عملية حفظ الطلب لكن بدون proofUrl
         }
       }
 
